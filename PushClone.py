@@ -153,10 +153,40 @@ class PushClone(ControlSurface):
         try:
             message = SysExEncoder.create_sysex(command, payload)
             if message:
-                self._send_midi(tuple(message))
-                # Log SysEx for debugging (only if not silent)
-                if not silent and DEBUG_ENABLED:
-                    SysExEncoder.log_sysex(message, "OUT")
+                # Validate message before sending
+                if len(message) > 32:  # SysEx too long for typical hardware
+                    if not silent:
+                        self.log_message(f"⚠️ SysEx too long ({len(message)} bytes) for command 0x{command:02X}")
+                    return
+                    
+                # Check for invalid SysEx format
+                if message[0] != 0xF0 or message[-1] != 0xF7:
+                    if not silent:
+                        self.log_message(f"⚠️ Invalid SysEx format for command 0x{command:02X}")
+                    return
+                
+                # Check payload length vs declared length
+                if len(message) >= 6:  # Header(4) + Command(1) + Length(1) = 6 minimum
+                    declared_length = message[5]
+                    actual_payload_length = len(message) - 8  # Total - Header(4) - Command(1) - Length(1) - Checksum(1) - End(1)
+                    if declared_length != actual_payload_length:
+                        if not silent:
+                            self.log_message(f"⚠️ SysEx length mismatch for 0x{command:02X}: declared={declared_length}, actual={actual_payload_length}")
+                        return
+                
+                try:
+                    self._send_midi(tuple(message))
+                    # Log successful sends for debugging
+                    if not silent and DEBUG_ENABLED:
+                        SysExEncoder.log_sysex(message, "OUT")
+                        self.log_message(f"✅ Sent SysEx 0x{command:02X} ({len(message)} bytes)")
+                except Exception as midi_error:
+                    if not silent:
+                        error_msg = str(midi_error)
+                        if "Error while sending midi message" in error_msg:
+                            self.log_message(f"🔌 MIDI port issue for command 0x{command:02X}: Hardware may be disconnected")
+                        else:
+                            self.log_message(f"❌ MIDI send failed 0x{command:02X}: {error_msg}")
             else:
                 if not silent:
                     self.log_message(f"❌ Error creating SysEx command 0x{command:02X}")
@@ -164,11 +194,31 @@ class PushClone(ControlSurface):
         except Exception as e:
             # Log all errors for Teensy development
             if not silent:
-                self.log_message(f"❌ Error sending SysEx command 0x{command:02X}: {e}")
+                self.log_message(f"❌ Error in SysEx command 0x{command:02X}: {e}")
     
     def _send_sysex_command_silent(self, command, payload):
         """Send SysEx command silently (no logging)"""
         self._send_sysex_command(command, payload, silent=True)
+    
+    def test_midi_connection(self):
+        """Test MIDI connection by sending a simple ping"""
+        try:
+            self.log_message("🔍 Testing MIDI connection...")
+            
+            # Send a minimal ping test
+            test_payload = [0x50, 0x49, 0x4E, 0x47]  # "PING" in ASCII
+            self._send_sysex_command(CMD_PING_TEST, test_payload)
+            
+            # Also test with raw MIDI note
+            try:
+                self._send_midi((0x90, 60, 64))  # Note On C4
+                self._send_midi((0x80, 60, 64))  # Note Off C4
+                self.log_message("✅ Raw MIDI test successful")
+            except Exception as e:
+                self.log_message(f"❌ Raw MIDI test failed: {e}")
+                
+        except Exception as e:
+            self.log_message(f"❌ MIDI connection test failed: {e}")
     
     def handle_sysex(self, midi_bytes):
         """Handle incoming SysEx messages from hardware"""

@@ -594,6 +594,22 @@ class ClipManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending scene S{scene_idx} state: {e}")
     
+    def refresh_all_tracks(self):
+        """Refresh clip listeners for all tracks (when tracks are added/removed)"""
+        try:
+            self.c_surface.log_message("🔄 Refreshing all clip listeners...")
+            
+            # Clean up all existing listeners
+            self.cleanup_listeners()
+            
+            # Re-setup listeners for all current clips and scenes
+            self.setup_listeners(max_tracks=8, max_scenes=8)
+            
+            self.c_surface.log_message("✅ All clip listeners refreshed")
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error refreshing all clip listeners: {e}")
+    
     def send_complete_state(self):
         """Send complete state for all clips and scenes"""
         if not self.c_surface._is_connected:

@@ -91,6 +91,12 @@ class TrackManager:
                 track.add_is_folded_listener(fold_listener)
                 listeners.append(('is_folded', fold_listener))
             
+            # Devices list changes (when devices are added/removed)
+            if hasattr(track, 'devices'):
+                devices_listener = lambda idx=track_idx: self._on_track_devices_changed(idx)
+                track.add_devices_listener(devices_listener)
+                listeners.append(('devices', devices_listener))
+            
             # === MIXER DEVICE ===
             self._setup_mixer_listeners(track_idx, track, listeners)
             
@@ -153,6 +159,8 @@ class TrackManager:
                                 track.remove_fired_slot_index_listener(listener_func)
                             elif listener_type == 'is_folded':
                                 track.remove_is_folded_listener(listener_func)
+                            elif listener_type == 'devices':
+                                track.remove_devices_listener(listener_func)
                             elif listener_type == 'volume':
                                 mixer.volume.remove_value_listener(listener_func)
                             elif listener_type == 'panning':
@@ -235,6 +243,20 @@ class TrackManager:
             is_folded = track.is_folded if hasattr(track, 'is_folded') else False
             self.c_surface.log_message(f"📁 Track {track_idx} folded: {is_folded}")
             self._send_track_fold_state(track_idx, is_folded)
+    
+    def _on_track_devices_changed(self, track_idx):
+        """Track devices list changed (device added/removed)"""
+        if self.c_surface._is_connected and track_idx < len(self.song.tracks):
+            track = self.song.tracks[track_idx]
+            device_count = len(track.devices) if hasattr(track, 'devices') else 0
+            self.c_surface.log_message(f"🎛️ Track {track_idx} devices changed: {device_count} devices")
+            
+            # Notify DeviceManager to refresh device listeners
+            if hasattr(self.c_surface, '_managers') and 'device' in self.c_surface._managers:
+                self.c_surface._managers['device'].refresh_track_devices(track_idx)
+            
+            # Send updated track state
+            self.send_complete_track_state(track_idx)
     
     def _on_track_volume_changed(self, track_idx):
         """Track volume changed"""
@@ -431,6 +453,22 @@ class TrackManager:
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track {track_idx} state: {e}")
+    
+    def refresh_all_tracks(self):
+        """Refresh listeners for all tracks (when tracks are added/removed)"""
+        try:
+            self.c_surface.log_message("🔄 Refreshing all track listeners...")
+            
+            # Clean up all existing listeners
+            self.cleanup_listeners()
+            
+            # Re-setup listeners for all current tracks
+            self.setup_listeners(max_tracks=8)
+            
+            self.c_surface.log_message("✅ All track listeners refreshed")
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error refreshing all tracks: {e}")
     
     def send_complete_state(self):
         """Send complete state for all tracks"""

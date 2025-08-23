@@ -210,7 +210,7 @@ class BrowserManager:
     def _send_selected_track(self, track_idx, track_name):
         """Send selected track to hardware"""
         try:
-            name_bytes = track_name.encode('utf-8')[:12] if track_name else []
+            name_bytes = track_name.encode('utf-8')[:8] if track_name else []
             payload = [track_idx if track_idx >= 0 else 127, len(name_bytes)]
             payload.extend(list(name_bytes))
             self.c_surface._send_sysex_command(CMD_SELECTED_TRACK, payload)
@@ -220,7 +220,7 @@ class BrowserManager:
     def _send_selected_scene(self, scene_idx, scene_name):
         """Send selected scene to hardware"""
         try:
-            name_bytes = scene_name.encode('utf-8')[:12] if scene_name else []
+            name_bytes = scene_name.encode('utf-8')[:8] if scene_name else []
             payload = [scene_idx if scene_idx >= 0 else 127, len(name_bytes)]
             payload.extend(list(name_bytes))
             self.c_surface._send_sysex_command(CMD_SELECTED_SCENE, payload)
@@ -230,7 +230,7 @@ class BrowserManager:
     def _send_detail_clip(self, track_idx, scene_idx, clip_name):
         """Send detail clip to hardware"""
         try:
-            name_bytes = clip_name.encode('utf-8')[:12] if clip_name else []
+            name_bytes = clip_name.encode('utf-8')[:8] if clip_name else []
             payload = [
                 track_idx if track_idx >= 0 else 127,
                 scene_idx if scene_idx >= 0 else 127,

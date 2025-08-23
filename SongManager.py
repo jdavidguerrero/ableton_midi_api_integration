@@ -81,6 +81,11 @@ class SongManager:
         self.song.add_overdub_listener(overdub_listener)
         self._listeners.append(('overdub', overdub_listener))
         
+        # Tracks list changes (when tracks are added/removed)
+        tracks_listener = lambda: self._on_tracks_changed()
+        self.song.add_tracks_listener(tracks_listener)
+        self._listeners.append(('tracks', tracks_listener))
+        
         # Punch In/Out
         punch_in_listener = lambda: self._on_punch_in_changed()
         punch_out_listener = lambda: self._on_punch_out_changed()
@@ -158,6 +163,8 @@ class SongManager:
                         self.song.remove_metronome_listener(listener_func)
                     elif listener_type == 'overdub':
                         self.song.remove_overdub_listener(listener_func)
+                    elif listener_type == 'tracks':
+                        self.song.remove_tracks_listener(listener_func)
                     elif listener_type == 'punch_in':
                         self.song.remove_punch_in_listener(listener_func)
                     elif listener_type == 'punch_out':
@@ -235,6 +242,21 @@ class SongManager:
             overdub = self.song.overdub
             self.c_surface.log_message(f"🔄 Overdub: {overdub}")
             self._send_overdub_state(overdub)
+    
+    def _on_tracks_changed(self):
+        """Tracks list changed (track added/removed)"""
+        if self.c_surface._is_connected:
+            track_count = len(self.song.tracks)
+            self.c_surface.log_message(f"🎚️ Tracks changed: {track_count} tracks total")
+            
+            # Notify all managers to refresh their listeners
+            if hasattr(self.c_surface, '_managers'):
+                if 'track' in self.c_surface._managers:
+                    self.c_surface._managers['track'].refresh_all_tracks()
+                if 'device' in self.c_surface._managers:
+                    self.c_surface._managers['device'].refresh_all_tracks()
+                if 'clip' in self.c_surface._managers:
+                    self.c_surface._managers['clip'].refresh_all_tracks()
     
     def _on_punch_in_changed(self):
         """Punch in changed"""

@@ -84,10 +84,13 @@ class DeviceManager:
             device.add_name_listener(name_listener)
             listeners.append(('name', name_listener))
             
-            # Device enabled state
-            is_enabled_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_device_enabled_changed(t_idx, d_idx)
-            device.add_is_enabled_listener(is_enabled_listener)
-            listeners.append(('is_enabled', is_enabled_listener))
+            # Device enabled state (compatibility check)
+            if hasattr(device, 'add_is_enabled_listener'):
+                is_enabled_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_device_enabled_changed(t_idx, d_idx)
+                device.add_is_enabled_listener(is_enabled_listener)
+                listeners.append(('is_enabled', is_enabled_listener))
+            else:
+                self.c_surface.log_message(f"⚠️ Device T{track_idx}D{device_idx} ({device.__class__.__name__}) doesn't support is_enabled listener")
             
             # === DEVICE PARAMETERS ===
             self._setup_device_parameter_listeners(track_idx, device_idx, device, listeners)
@@ -112,15 +115,28 @@ class DeviceManager:
     def _setup_device_parameter_listeners(self, track_idx, device_idx, device, listeners):
         """Setup parameter listeners for a device"""
         try:
-            # Parameters
+            # Parameters (with validation)
+            device_class = device.__class__.__name__
+            param_count = 0
+            
             for param_idx, param in enumerate(device.parameters[:8]):  # First 8 params
-                param_listener = lambda t_idx=track_idx, d_idx=device_idx, p_idx=param_idx: self._on_parameter_value_changed(t_idx, d_idx, p_idx)
-                param.add_value_listener(param_listener)
-                listeners.append((f'param_{param_idx}', param_listener))
-                
-                # Store in param listeners registry
-                param_key = (track_idx, device_idx, param_idx)
-                self._param_listeners[param_key] = [('value', param_listener)]
+                try:
+                    # Check if parameter is valid and has listener support
+                    if hasattr(param, 'add_value_listener') and hasattr(param, 'value'):
+                        param_listener = lambda t_idx=track_idx, d_idx=device_idx, p_idx=param_idx: self._on_parameter_value_changed(t_idx, d_idx, p_idx)
+                        param.add_value_listener(param_listener)
+                        listeners.append((f'param_{param_idx}', param_listener))
+                        
+                        # Store in param listeners registry
+                        param_key = (track_idx, device_idx, param_idx)
+                        self._param_listeners[param_key] = [('value', param_listener)]
+                        param_count += 1
+                    else:
+                        self.c_surface.log_message(f"⚠️ Parameter T{track_idx}D{device_idx}P{param_idx} ({param.name if hasattr(param, 'name') else 'Unknown'}) doesn't support listeners")
+                except Exception as param_error:
+                    self.c_surface.log_message(f"⚠️ Error setting up parameter T{track_idx}D{device_idx}P{param_idx}: {param_error}")
+            
+            self.c_surface.log_message(f"✅ Setup {param_count}/8 parameters for {device_class} T{track_idx}D{device_idx}")
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting up parameter listeners T{track_idx}D{device_idx}: {e}")
@@ -323,7 +339,8 @@ class DeviceManager:
                     if listener_type == 'name':
                         device.remove_name_listener(listener_func)
                     elif listener_type == 'is_enabled':
-                        device.remove_is_enabled_listener(listener_func)
+                        if hasattr(device, 'remove_is_enabled_listener'):
+                            device.remove_is_enabled_listener(listener_func)
                     elif listener_type.startswith('param_'):
                         param_idx = int(listener_type.split('_')[1])
                         if param_idx < len(device.parameters):
@@ -807,6 +824,51 @@ class DeviceManager:
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending device T{track_idx}D{device_idx} state: {e}")
+    
+    def refresh_track_devices(self, track_idx):
+        """Refresh device listeners for a specific track when devices change"""
+        try:
+            if track_idx >= len(self.song.tracks):
+                return
+                
+            track = self.song.tracks[track_idx]
+            self.c_surface.log_message(f"🔄 Refreshing devices for track {track_idx}...")
+            
+            # Clean up existing device listeners for this track
+            keys_to_remove = [(t_idx, d_idx) for (t_idx, d_idx) in self._device_listeners.keys() if t_idx == track_idx]
+            for key in keys_to_remove:
+                track_idx_old, device_idx_old = key
+                listeners = self._device_listeners[key]
+                self._cleanup_device_listeners(track_idx_old, device_idx_old, listeners)
+                del self._device_listeners[key]
+            
+            # Setup listeners for all current devices in this track
+            if hasattr(track, 'devices'):
+                for device_idx, device in enumerate(track.devices):
+                    if device:
+                        self._setup_single_device_listeners(track_idx, device_idx)
+                        self.c_surface.log_message(f"🎛️ Setup device T{track_idx}D{device_idx}: {device.name}")
+            
+            self.c_surface.log_message(f"✅ Track {track_idx} device listeners refreshed")
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error refreshing track {track_idx} devices: {e}")
+    
+    def refresh_all_tracks(self):
+        """Refresh device listeners for all tracks (when tracks are added/removed)"""
+        try:
+            self.c_surface.log_message("🔄 Refreshing all device listeners...")
+            
+            # Clean up all existing listeners
+            self.cleanup_listeners()
+            
+            # Re-setup listeners for all current tracks and devices
+            self.setup_listeners(max_tracks=8, max_devices_per_track=8)
+            
+            self.c_surface.log_message("✅ All device listeners refreshed")
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error refreshing all device listeners: {e}")
     
     def send_complete_state(self):
         """Send complete state for all devices"""

@@ -19,6 +19,7 @@ CMD_SWITCH_VIEW = 0x01          # Switch active view
 CMD_HANDSHAKE = 0x60            # Initial handshake
 CMD_HANDSHAKE_REPLY = 0x61      # Handshake response
 CMD_VIEW_STATE = 0x62           # Complete view state dump
+CMD_PING_TEST = 0x63            # MIDI connection test
 
 # ========================================
 # CLIP VIEW COMMANDS (0x10-0x1F)
