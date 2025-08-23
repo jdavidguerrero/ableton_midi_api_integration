@@ -210,8 +210,12 @@ class BrowserManager:
     def _send_selected_track(self, track_idx, track_name):
         """Send selected track to hardware"""
         try:
+            # Validate track_idx is within valid range
+            if track_idx < 0 or track_idx > 127:
+                track_idx = 127  # Use 127 for invalid values
+            
             name_bytes = track_name.encode('utf-8')[:8] if track_name else []
-            payload = [track_idx if track_idx >= 0 else 127, len(name_bytes)]
+            payload = [track_idx, len(name_bytes)]
             payload.extend(list(name_bytes))
             self.c_surface._send_sysex_command(CMD_SELECTED_TRACK, payload)
         except Exception as e:
@@ -220,8 +224,12 @@ class BrowserManager:
     def _send_selected_scene(self, scene_idx, scene_name):
         """Send selected scene to hardware"""
         try:
+            # Validate scene_idx is within valid range
+            if scene_idx < 0 or scene_idx > 127:
+                scene_idx = 127  # Use 127 for invalid values
+            
             name_bytes = scene_name.encode('utf-8')[:8] if scene_name else []
-            payload = [scene_idx if scene_idx >= 0 else 127, len(name_bytes)]
+            payload = [scene_idx, len(name_bytes)]
             payload.extend(list(name_bytes))
             self.c_surface._send_sysex_command(CMD_SELECTED_SCENE, payload)
         except Exception as e:
@@ -230,12 +238,14 @@ class BrowserManager:
     def _send_detail_clip(self, track_idx, scene_idx, clip_name):
         """Send detail clip to hardware"""
         try:
+            # Validate indices are within valid range
+            if track_idx < 0 or track_idx > 127:
+                track_idx = 127  # Use 127 for invalid values
+            if scene_idx < 0 or scene_idx > 127:
+                scene_idx = 127  # Use 127 for invalid values
+            
             name_bytes = clip_name.encode('utf-8')[:8] if clip_name else []
-            payload = [
-                track_idx if track_idx >= 0 else 127,
-                scene_idx if scene_idx >= 0 else 127,
-                len(name_bytes)
-            ]
+            payload = [track_idx, scene_idx, len(name_bytes)]
             payload.extend(list(name_bytes))
             self.c_surface._send_sysex_command(CMD_DETAIL_CLIP, payload)
         except Exception as e:

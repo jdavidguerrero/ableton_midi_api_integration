@@ -551,7 +551,10 @@ class DeviceManager:
     def _send_parameter_value(self, track_idx, device_idx, param_idx, value, param_name):
         """Send parameter value to hardware"""
         try:
+            # Validate and clamp value to MIDI range 0-127
             value_127 = int(value * 127)  # Convert to 0-127 range
+            value_127 = max(0, min(127, value_127))  # Clamp to valid MIDI range
+            
             display_str = f"{value:.2f}"
             
             # Use the parameter encoding from MIDIUtils

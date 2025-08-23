@@ -368,7 +368,16 @@ class TrackManager:
     def _send_track_playing_slot(self, track_idx, playing_slot):
         """Send track playing slot to hardware"""
         try:
-            slot_idx = playing_slot if playing_slot >= 0 else 127  # 127 = no slot playing
+            # Validate track_idx is within valid range
+            if track_idx < 0 or track_idx > 127:
+                track_idx = 127  # Use 127 for invalid values
+            
+            # Validate slot_idx is within valid range
+            if playing_slot < 0 or playing_slot > 127:
+                slot_idx = 127  # 127 = no slot playing
+            else:
+                slot_idx = playing_slot
+            
             payload = [track_idx, slot_idx]
             self.c_surface._send_sysex_command(CMD_TRACK_PLAYING_SLOT, payload)
         except Exception as e:
@@ -377,7 +386,16 @@ class TrackManager:
     def _send_track_fired_slot(self, track_idx, fired_slot):
         """Send track fired slot to hardware"""
         try:
-            slot_idx = fired_slot if fired_slot >= 0 else 127  # 127 = no slot fired
+            # Validate track_idx is within valid range
+            if track_idx < 0 or track_idx > 127:
+                track_idx = 127  # Use 127 for invalid values
+            
+            # Validate slot_idx is within valid range
+            if fired_slot < 0 or fired_slot > 127:
+                slot_idx = 127  # 127 = no slot fired
+            else:
+                slot_idx = fired_slot
+            
             payload = [track_idx, slot_idx]
             self.c_surface._send_sysex_command(CMD_TRACK_FIRED_SLOT, payload)
         except Exception as e:

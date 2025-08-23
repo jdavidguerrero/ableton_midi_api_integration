@@ -424,9 +424,15 @@ class ClipManager:
     def _send_clip_start_marker(self, track_idx, scene_idx, start_marker):
         """Send clip start marker to hardware"""
         try:
-            # Convert to beats (simplified)
-            start_beats = int(start_marker) & 0x7F
-            start_fraction = int((start_marker - int(start_marker)) * 127) & 0x7F
+            # Validate indices are within valid range
+            if track_idx < 0 or track_idx > 127:
+                track_idx = 127  # Use 127 for invalid values
+            if scene_idx < 0 or scene_idx > 127:
+                scene_idx = 127  # Use 127 for invalid values
+            
+            # Convert to beats (simplified) and clamp to MIDI range
+            start_beats = max(0, min(127, int(start_marker) & 0x7F))
+            start_fraction = max(0, min(127, int((start_marker - int(start_marker)) * 127) & 0x7F))
             
             payload = [track_idx, scene_idx, start_beats, start_fraction]
             self.c_surface._send_sysex_command(CMD_CLIP_START, payload)
@@ -436,9 +442,15 @@ class ClipManager:
     def _send_clip_end_marker(self, track_idx, scene_idx, end_marker):
         """Send clip end marker to hardware"""
         try:
-            # Convert to beats (simplified)
-            end_beats = int(end_marker) & 0x7F
-            end_fraction = int((end_marker - int(end_marker)) * 127) & 0x7F
+            # Validate indices are within valid range
+            if track_idx < 0 or track_idx > 127:
+                track_idx = 127  # Use 127 for invalid values
+            if scene_idx < 0 or scene_idx > 127:
+                scene_idx = 127  # Use 127 for invalid values
+            
+            # Convert to beats (simplified) and clamp to MIDI range
+            end_beats = max(0, min(127, int(end_marker) & 0x7F))
+            end_fraction = max(0, min(127, int((end_marker - int(end_marker)) * 127) & 0x7F))
             
             payload = [track_idx, scene_idx, end_beats, end_fraction]
             self.c_surface._send_sysex_command(CMD_CLIP_END, payload)
