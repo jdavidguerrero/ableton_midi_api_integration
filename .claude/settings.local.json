@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.cycling74.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -51,13 +51,13 @@ class BrowserManager:
                 self.song.view.add_detail_clip_listener(detail_clip_listener)
                 self._listeners.append(('detail_clip', detail_clip_listener))
             
-            # Highlighted clip slot
+            # Highlighted clip slot (Live 11.0+)
             if hasattr(self.song.view, 'add_highlighted_clip_slot_listener'):
                 highlighted_clip_listener = lambda: self._on_highlighted_clip_slot_changed()
                 self.song.view.add_highlighted_clip_slot_listener(highlighted_clip_listener)
                 self._listeners.append(('highlighted_clip_slot', highlighted_clip_listener))
             else:
-                self.c_surface.log_message("⚠️ highlighted_clip_slot_listener not available in this Live version")
+                self.c_surface.log_message("ℹ️ highlighted_clip_slot_listener not available (requires Live 11.0+)")
             
             # === APPLICATION VIEW LISTENERS ===
             

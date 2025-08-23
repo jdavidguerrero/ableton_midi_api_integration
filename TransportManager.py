@@ -74,13 +74,13 @@ class TransportManager:
             self.song.add_arrangement_overdub_listener(arrangement_record_listener)
             self._listeners.append(('arrangement_overdub', arrangement_record_listener))
             
-            # Back to arrangement (if available)
+            # Back to arrangement (Live 9.0+)
             if hasattr(self.song, 'add_back_to_arrangement_listener'):
                 back_to_arrangement_listener = lambda: self._on_back_to_arrangement_changed()
                 self.song.add_back_to_arrangement_listener(back_to_arrangement_listener)
                 self._listeners.append(('back_to_arrangement', back_to_arrangement_listener))
             else:
-                self.c_surface.log_message("⚠️ back_to_arrangement_listener not available in this Live version")
+                self.c_surface.log_message("ℹ️ back_to_arrangement_listener not available (requires Live 9.0+)")
             
             # === ADDITIONAL TRANSPORT PROPERTIES ===
             
@@ -431,7 +431,7 @@ class TransportManager:
                 self.song.tap_tempo()
                 self.c_surface.log_message(f"👆 Tap tempo: {self.song.tempo:.1f} BPM")
             else:
-                self.c_surface.log_message("👆 Tap tempo not available")
+                self.c_surface.log_message("ℹ️ Tap tempo not available in this Live version")
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error with tap tempo: {e}")
@@ -473,7 +473,7 @@ class TransportManager:
                 self.song.back_to_arrangement = True
                 self.c_surface.log_message("🔙 Back to arrangement triggered")
             else:
-                self.c_surface.log_message("⚠️ back_to_arrangement not available in this Live version")
+                self.c_surface.log_message("ℹ️ back_to_arrangement not available (requires Live 9.0+)")
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error triggering back to arrangement: {e}")

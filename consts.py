@@ -66,6 +66,14 @@ CMD_PARAM_VALUE = 0x34          # Individual parameter value (Live → Teensy)
 CMD_DEVICE_ENABLE = 0x35        # Device enable/disable (bidirectional)
 CMD_DEVICE_PREV_NEXT = 0x36     # Navigate devices (Teensy → Live)
 CMD_PARAM_PAGE = 0x37           # Parameter page change (Teensy → Live)
+CMD_CHAIN_SELECT = 0x38         # Select chain in rack device (Teensy → Live)
+CMD_CHAIN_MUTE = 0x39           # Chain mute toggle (bidirectional)
+CMD_CHAIN_SOLO = 0x3A           # Chain solo toggle (bidirectional)
+CMD_CHAIN_VOLUME = 0x3B         # Chain volume change (bidirectional)
+CMD_CHAIN_PAN = 0x3C            # Chain pan change (bidirectional)
+CMD_CHAIN_SEND = 0x3D           # Chain send level (bidirectional)
+CMD_CHAIN_CROSSFADE = 0x3E      # Chain crossfade assign (bidirectional)
+CMD_RACK_MACRO = 0x3F           # Rack macro parameter (bidirectional)
 
 # ========================================
 # NOTE VIEW COMMANDS (0x40-0x4F)
@@ -83,6 +91,17 @@ CMD_DRUM_PAD_STATE = 0x49       # Drum pad state (Live → Teensy)
 CMD_DEVICE_CHAIN = 0x4A         # Device chain state (Live → Teensy)
 CMD_NEOTRELLIS_GRID = 0x4B      # NeoTrellis 4x8 grid state (Live → Teensy)
 CMD_DRUM_PAD_COLOR = 0x4C       # Drum pad color/state (Live → Teensy)
+
+# ========================================
+# PLUGIN DEVICE COMMANDS (0x70-0x7F)
+# ========================================
+CMD_PLUGIN_PRESET = 0x71          # Plugin preset info (Live → Teensy)
+CMD_PLUGIN_PROGRAM = 0x72         # Plugin program info (Live → Teensy)
+CMD_PLUGIN_LATENCY = 0x73         # Plugin latency info (Live → Teensy)
+CMD_PLUGIN_UI = 0x74              # Plugin UI visibility (Live → Teensy)
+CMD_PLUGIN_BANK = 0x75            # Plugin bank info (Live → Teensy)
+CMD_PLUGIN_TYPE = 0x76            # Plugin type info (VST/AU/VST3)
+CMD_PLUGIN_VENDOR = 0x77          # Plugin vendor info
 
 # ========================================
 # TRANSPORT COMMANDS (0x50-0x5F)
@@ -119,6 +138,32 @@ CMD_REDO = 0xC4                   # Redo action (Teensy → Live)
 CMD_CAPTURE_MIDI = 0xC5           # Capture MIDI (Teensy → Live)
 CMD_QUANTIZE_CLIP = 0xC6          # Quantize clip (Teensy → Live)
 CMD_QUANTIZE_NOTES = 0xC7         # Quantize notes (Teensy → Live)
+
+# ========================================
+# GROOVE POOL COMMANDS (0xD0-0xDF)
+# ========================================
+CMD_GROOVE_POOL = 0xD0            # Groove pool templates (Live → Teensy)
+CMD_GROOVE_AMOUNT = 0xD1          # Track groove amount (bidirectional)
+CMD_GROOVE_TEMPLATE = 0xD2        # Track groove template (bidirectional)
+
+# ========================================
+# MIDI CLIP COMMANDS (0xE0-0xEF)
+# ========================================
+CMD_MIDI_NOTES = 0xE0             # MIDI notes data (Live → Teensy)
+CMD_MIDI_NOTE_ADD = 0xE1          # Add MIDI note (Teensy → Live)
+CMD_MIDI_NOTE_REMOVE = 0xE2       # Remove MIDI note (Teensy → Live)
+CMD_MIDI_NOTE_MODIFY = 0xE3       # Modify MIDI note (Teensy → Live)
+CMD_MIDI_CLIP_QUANTIZE = 0xE4     # Quantize MIDI clip (Teensy → Live)
+
+# ========================================
+# SONG CREATION COMMANDS (0xF0-0xFF)
+# ========================================
+CMD_CREATE_AUDIO_TRACK = 0xF0     # Create audio track (Teensy → Live)
+CMD_CREATE_MIDI_TRACK = 0xF1      # Create MIDI track (Teensy → Live)
+CMD_CREATE_RETURN_TRACK = 0xF2    # Create return track (Teensy → Live)
+CMD_CREATE_SCENE = 0xF3           # Create scene (Teensy → Live)
+CMD_DUPLICATE_TRACK = 0xF4        # Duplicate track (Teensy → Live)
+CMD_DUPLICATE_CLIP = 0xF5         # Duplicate clip (Teensy → Live)
 
 # ========================================
 # CLIP STATES

@@ -85,10 +85,10 @@ class DeviceManager:
             listeners.append(('name', name_listener))
             
             # Device enabled state (compatibility check)
-            if hasattr(device, 'add_is_enabled_listener'):
-                is_enabled_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_device_enabled_changed(t_idx, d_idx)
-                device.add_is_enabled_listener(is_enabled_listener)
-                listeners.append(('is_enabled', is_enabled_listener))
+            if hasattr(device, 'add_is_active_listener'):
+                is_active_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_device_enabled_changed(t_idx, d_idx)
+                device.add_is_active_listener(is_active_listener)
+                listeners.append(('is_active', is_active_listener))
             else:
                 self.c_surface.log_message(f"⚠️ Device T{track_idx}D{device_idx} ({device.__class__.__name__}) doesn't support is_enabled listener")
             
@@ -142,34 +142,109 @@ class DeviceManager:
             self.c_surface.log_message(f"❌ Error setting up parameter listeners T{track_idx}D{device_idx}: {e}")
     
     def _setup_rack_device_listeners(self, track_idx, device_idx, device, listeners):
-        """Setup listeners for rack devices (Instrument/Audio Racks)"""
+        """Setup listeners for RackDevice with comprehensive Chain class support"""
         try:
-            # Chain selection
+            if DEBUG_ENABLED:
+                self.c_surface.log_message(f"🔗 Setting up RackDevice listeners T{track_idx}D{device_idx}")
+            
+            # Chain selection listener
             if hasattr(device, 'view') and hasattr(device.view, 'selected_chain'):
                 chain_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_selected_chain_changed(t_idx, d_idx)
                 device.view.add_selected_chain_listener(chain_listener)
                 listeners.append(('selected_chain', chain_listener))
             
-            # Chains list
+            # Chains list listener
             if hasattr(device, 'chains'):
                 chains_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_chains_changed(t_idx, d_idx)
                 device.add_chains_listener(chains_listener)
                 listeners.append(('chains', chains_listener))
                 
-                # Individual chain listeners
-                for chain_idx, chain in enumerate(device.chains[:4]):  # First 4 chains
-                    if hasattr(chain, 'name'):
-                        chain_name_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_name_changed(t_idx, d_idx, c_idx)
-                        chain.add_name_listener(chain_name_listener)
-                        listeners.append((f'chain_{chain_idx}_name', chain_name_listener))
-                    
-                    if hasattr(chain, 'is_auto_colored'):
-                        chain_color_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_color_changed(t_idx, d_idx, c_idx)
-                        chain.add_color_listener(chain_color_listener)
-                        listeners.append((f'chain_{chain_idx}_color', chain_color_listener))
+                # Individual chain listeners (enhanced Chain class integration)
+                for chain_idx, chain in enumerate(device.chains[:8]):  # Support up to 8 chains
+                    if chain:
+                        self._setup_single_chain_listeners(track_idx, device_idx, chain_idx, chain, listeners)
+            
+            # Rack macro controls (RackDevice macros property)
+            if hasattr(device, 'macros'):
+                for macro_idx, macro in enumerate(device.macros[:8]):
+                    if macro and hasattr(macro, 'value'):
+                        macro_listener = lambda t_idx=track_idx, d_idx=device_idx, m_idx=macro_idx: self._on_rack_macro_changed(t_idx, d_idx, m_idx)
+                        macro.add_value_listener(macro_listener)
+                        listeners.append((f'macro_{macro_idx}', macro_listener))
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting up rack listeners T{track_idx}D{device_idx}: {e}")
+    
+    def _setup_single_chain_listeners(self, track_idx, device_idx, chain_idx, chain, listeners):
+        """Setup listeners for a single Chain class instance"""
+        try:
+            # Chain name listener
+            if hasattr(chain, 'name'):
+                chain_name_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_name_changed(t_idx, d_idx, c_idx)
+                chain.add_name_listener(chain_name_listener)
+                listeners.append((f'chain_{chain_idx}_name', chain_name_listener))
+            
+            # Chain color listener
+            if hasattr(chain, 'color'):
+                chain_color_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_color_changed(t_idx, d_idx, c_idx)
+                chain.add_color_listener(chain_color_listener)
+                listeners.append((f'chain_{chain_idx}_color', chain_color_listener))
+            
+            # Chain mute/solo listeners
+            if hasattr(chain, 'mute'):
+                chain_mute_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_mute_changed(t_idx, d_idx, c_idx)
+                chain.add_mute_listener(chain_mute_listener)
+                listeners.append((f'chain_{chain_idx}_mute', chain_mute_listener))
+            
+            if hasattr(chain, 'solo'):
+                chain_solo_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_solo_changed(t_idx, d_idx, c_idx)
+                chain.add_solo_listener(chain_solo_listener)
+                listeners.append((f'chain_{chain_idx}_solo', chain_solo_listener))
+            
+            # Chain devices listener (Chain.devices property)
+            if hasattr(chain, 'devices'):
+                chain_devices_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_devices_changed(t_idx, d_idx, c_idx)
+                chain.add_devices_listener(chain_devices_listener)
+                listeners.append((f'chain_{chain_idx}_devices', chain_devices_listener))
+            
+            # Chain mixer device (Chain.mixer_device property)
+            if hasattr(chain, 'mixer_device') and chain.mixer_device:
+                self._setup_chain_mixer_listeners(track_idx, device_idx, chain_idx, chain.mixer_device, listeners)
+                
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting up chain {chain_idx} listeners T{track_idx}D{device_idx}: {e}")
+    
+    def _setup_chain_mixer_listeners(self, track_idx, device_idx, chain_idx, mixer_device, listeners):
+        """Setup listeners for Chain mixer device (ChainMixerDevice)"""
+        try:
+            # Chain volume
+            if hasattr(mixer_device, 'volume') and hasattr(mixer_device.volume, 'value'):
+                volume_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_volume_changed(t_idx, d_idx, c_idx)
+                mixer_device.volume.add_value_listener(volume_listener)
+                listeners.append((f'chain_{chain_idx}_volume', volume_listener))
+            
+            # Chain pan
+            if hasattr(mixer_device, 'panning') and hasattr(mixer_device.panning, 'value'):
+                pan_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_pan_changed(t_idx, d_idx, c_idx)
+                mixer_device.panning.add_value_listener(pan_listener)
+                listeners.append((f'chain_{chain_idx}_pan', pan_listener))
+            
+            # Chain sends
+            if hasattr(mixer_device, 'sends'):
+                for send_idx, send in enumerate(mixer_device.sends[:4]):
+                    if send and hasattr(send, 'value'):
+                        send_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx, s_idx=send_idx: self._on_chain_send_changed(t_idx, d_idx, c_idx, s_idx)
+                        send.add_value_listener(send_listener)
+                        listeners.append((f'chain_{chain_idx}_send_{send_idx}', send_listener))
+            
+            # Chain crossfade assignment
+            if hasattr(mixer_device, 'crossfade_assign'):
+                crossfade_listener = lambda t_idx=track_idx, d_idx=device_idx, c_idx=chain_idx: self._on_chain_crossfade_changed(t_idx, d_idx, c_idx)
+                mixer_device.add_crossfade_assign_listener(crossfade_listener)
+                listeners.append((f'chain_{chain_idx}_crossfade', crossfade_listener))
+                
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting up chain mixer listeners T{track_idx}D{device_idx}C{chain_idx}: {e}")
     
     def _setup_drum_rack_listeners(self, track_idx, device_idx, drum_rack):
         """Setup listeners for drum rack specific functionality"""
@@ -191,11 +266,37 @@ class DeviceManager:
                                 drum_pad.add_name_listener(pad_name_listener)
                                 drum_listeners.append((f'pad_{pad_idx}_name', pad_name_listener))
                             
+                            # Pad mute state (Live Object Model DrumPad.mute)
+                            if hasattr(drum_pad, 'mute'):
+                                pad_mute_listener = lambda t_idx=track_idx, d_idx=device_idx, p_idx=pad_idx: self._on_drum_pad_mute_changed(t_idx, d_idx, p_idx)
+                                drum_pad.add_mute_listener(pad_mute_listener)
+                                drum_listeners.append((f'pad_{pad_idx}_mute', pad_mute_listener))
+                            
+                            # Pad solo state (Live Object Model DrumPad.solo)
+                            if hasattr(drum_pad, 'solo'):
+                                pad_solo_listener = lambda t_idx=track_idx, d_idx=device_idx, p_idx=pad_idx: self._on_drum_pad_solo_changed(t_idx, d_idx, p_idx)
+                                drum_pad.add_solo_listener(pad_solo_listener)
+                                drum_listeners.append((f'pad_{pad_idx}_solo', pad_solo_listener))
+                            
                             # Pad chains (if has chains)
                             if hasattr(drum_pad, 'chains') and drum_pad.chains:
                                 pad_chains_listener = lambda t_idx=track_idx, d_idx=device_idx, p_idx=pad_idx: self._on_drum_pad_chains_changed(t_idx, d_idx, p_idx)
                                 drum_pad.add_chains_listener(pad_chains_listener)
                                 drum_listeners.append((f'pad_{pad_idx}_chains', pad_chains_listener))
+                            
+                            # Pad canonical parent (for accessing nested devices/samples)
+                            if hasattr(drum_pad, 'canonical_parent'):
+                                try:
+                                    parent = drum_pad.canonical_parent
+                                    if hasattr(parent, 'sample') and parent.sample:
+                                        # Sample properties (file path, etc.)
+                                        sample = parent.sample
+                                        if hasattr(sample, 'add_file_path_listener'):
+                                            sample_listener = lambda t_idx=track_idx, d_idx=device_idx, p_idx=pad_idx: self._on_drum_pad_sample_changed(t_idx, d_idx, p_idx)
+                                            sample.add_file_path_listener(sample_listener)
+                                            drum_listeners.append((f'pad_{pad_idx}_sample', sample_listener))
+                                except Exception:
+                                    pass  # Some pads may not have samples
             
             # Selected drum pad
             if hasattr(drum_rack, 'view') and hasattr(drum_rack.view, 'selected_drum_pad'):
@@ -214,9 +315,16 @@ class DeviceManager:
         """Setup listeners for specific device types"""
         try:
             device_class = device.__class__.__name__
+            device_type = getattr(device, 'type', 'unknown')
+            
+            self.c_surface.log_message(f"🔌 Device T{track_idx}D{device_idx} class: {device_class}, type: {device_type}")
+            
+            # Plugin Device (VST, AU, VST3)
+            if device_class == 'PluginDevice' or 'plugin' in device_class.lower():
+                self._setup_plugin_device_listeners(track_idx, device_idx, device, listeners)
             
             # Simpler device
-            if hasattr(device, 'sample') and device_class == 'SimplerDevice':
+            elif hasattr(device, 'sample') and device_class == 'SimplerDevice':
                 self._setup_simpler_listeners(track_idx, device_idx, device, listeners)
             
             # Wavetable device
@@ -227,12 +335,85 @@ class DeviceManager:
             elif device_class == 'Eq8Device':
                 self._setup_eq8_listeners(track_idx, device_idx, device, listeners)
             
+            # Operator
+            elif device_class == 'OperatorDevice':
+                self._setup_operator_listeners(track_idx, device_idx, device, listeners)
+            
+            # Compressor
+            elif device_class == 'Compressor2Device':
+                self._setup_compressor_listeners(track_idx, device_idx, device, listeners)
+            
             # Compressor
             elif device_class == 'CompressorDevice':
                 self._setup_compressor_listeners(track_idx, device_idx, device, listeners)
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting up device type listeners T{track_idx}D{device_idx}: {e}")
+    
+    def _setup_plugin_device_listeners(self, track_idx, device_idx, device, listeners):
+        """Setup PluginDevice-specific listeners (VST/AU/VST3)"""
+        try:
+            self.c_surface.log_message(f"🔌 Setting up PluginDevice listeners T{track_idx}D{device_idx}")
+            
+            # Plugin preset changes
+            if hasattr(device, 'selected_preset_index'):
+                preset_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_plugin_preset_changed(t_idx, d_idx)
+                try:
+                    if hasattr(device, 'add_preset_listener'):
+                        device.add_preset_listener(preset_listener)
+                        listeners.append(('plugin_preset', preset_listener))
+                except AttributeError:
+                    self.c_surface.log_message(f"ℹ️ Plugin preset listener not available for T{track_idx}D{device_idx}")
+            
+            # Plugin program/bank changes
+            if hasattr(device, 'selected_program_name'):
+                program_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_plugin_program_changed(t_idx, d_idx)
+                try:
+                    if hasattr(device, 'add_program_listener'):
+                        device.add_program_listener(program_listener)
+                        listeners.append(('plugin_program', program_listener))
+                except AttributeError:
+                    self.c_surface.log_message(f"ℹ️ Plugin program listener not available for T{track_idx}D{device_idx}")
+            
+            # Plugin latency reporting
+            if hasattr(device, 'latency_in_ms'):
+                latency_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_plugin_latency_changed(t_idx, d_idx)
+                try:
+                    if hasattr(device, 'add_latency_listener'):
+                        device.add_latency_listener(latency_listener)
+                        listeners.append(('plugin_latency', latency_listener))
+                except AttributeError:
+                    pass  # Latency listeners are optional
+            
+            # Plugin window state (if available)
+            if hasattr(device, 'is_showing_plugin_ui'):
+                ui_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_plugin_ui_changed(t_idx, d_idx)
+                try:
+                    if hasattr(device, 'add_ui_listener'):
+                        device.add_ui_listener(ui_listener)
+                        listeners.append(('plugin_ui', ui_listener))
+                except AttributeError:
+                    pass  # UI listeners are optional
+                    
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting up PluginDevice listeners T{track_idx}D{device_idx}: {e}")
+    
+    def _setup_operator_listeners(self, track_idx, device_idx, device, listeners):
+        """Setup Operator-specific listeners"""
+        try:
+            self.c_surface.log_message(f"🎡 Setting up Operator listeners T{track_idx}D{device_idx}")
+            # Operator has 4 operators (A, B, C, D) with complex FM synthesis
+            # Could add specific operator parameter listeners here
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting up Operator listeners: {e}")
+    
+    def _setup_compressor_listeners(self, track_idx, device_idx, device, listeners):
+        """Setup Compressor-specific listeners"""
+        try:
+            self.c_surface.log_message(f"🎧 Setting up Compressor listeners T{track_idx}D{device_idx}")
+            # Compressor2 specific parameters can be monitored
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting up Compressor listeners: {e}")
     
     def _setup_simpler_listeners(self, track_idx, device_idx, device, listeners):
         """Setup Simpler device specific listeners"""
@@ -249,7 +430,8 @@ class DeviceManager:
                 # Sample length
                 if hasattr(sample, 'length'):
                     sample_length_listener = lambda t_idx=track_idx, d_idx=device_idx: self._on_simpler_sample_length_changed(t_idx, d_idx)
-                    sample.add_length_listener(sample_length_listener)
+                    # Note: length property exists but add_length_listener does not exist in Live API
+                    # Length changes can be tracked through other device parameter listeners
                     listeners.append(('sample_length', sample_length_listener))
                     
         except Exception as e:
@@ -338,9 +520,9 @@ class DeviceManager:
                 try:
                     if listener_type == 'name':
                         device.remove_name_listener(listener_func)
-                    elif listener_type == 'is_enabled':
-                        if hasattr(device, 'remove_is_enabled_listener'):
-                            device.remove_is_enabled_listener(listener_func)
+                    elif listener_type == 'is_active':
+                        if hasattr(device, 'remove_is_active_listener'):
+                            device.remove_is_active_listener(listener_func)
                     elif listener_type.startswith('param_'):
                         param_idx = int(listener_type.split('_')[1])
                         if param_idx < len(device.parameters):
@@ -349,7 +531,51 @@ class DeviceManager:
                         device.view.remove_selected_chain_listener(listener_func)
                     elif listener_type == 'chains':
                         device.remove_chains_listener(listener_func)
-                    # Add more cleanup cases as needed
+                    elif listener_type.startswith('chain_'):
+                        # Handle Chain class listener cleanup
+                        parts = listener_type.split('_')
+                        if len(parts) >= 3:
+                            chain_idx = int(parts[1])
+                            listener_attr = '_'.join(parts[2:])
+                            
+                            if hasattr(device, 'chains') and chain_idx < len(device.chains):
+                                chain = device.chains[chain_idx]
+                                
+                                # Chain property listeners
+                                if listener_attr == 'name' and hasattr(chain, 'remove_name_listener'):
+                                    chain.remove_name_listener(listener_func)
+                                elif listener_attr == 'color' and hasattr(chain, 'remove_color_listener'):
+                                    chain.remove_color_listener(listener_func)
+                                elif listener_attr == 'mute' and hasattr(chain, 'remove_mute_listener'):
+                                    chain.remove_mute_listener(listener_func)
+                                elif listener_attr == 'solo' and hasattr(chain, 'remove_solo_listener'):
+                                    chain.remove_solo_listener(listener_func)
+                                elif listener_attr == 'devices' and hasattr(chain, 'remove_devices_listener'):
+                                    chain.remove_devices_listener(listener_func)
+                                
+                                # Chain mixer device listeners
+                                elif hasattr(chain, 'mixer_device') and chain.mixer_device:
+                                    mixer = chain.mixer_device
+                                    if listener_attr == 'volume' and hasattr(mixer.volume, 'remove_value_listener'):
+                                        mixer.volume.remove_value_listener(listener_func)
+                                    elif listener_attr == 'pan' and hasattr(mixer.panning, 'remove_value_listener'):
+                                        mixer.panning.remove_value_listener(listener_func)
+                                    elif listener_attr == 'crossfade' and hasattr(mixer, 'remove_crossfade_assign_listener'):
+                                        mixer.remove_crossfade_assign_listener(listener_func)
+                                    elif listener_attr.startswith('send_'):
+                                        send_idx = int(listener_attr.split('_')[1])
+                                        if hasattr(mixer, 'sends') and send_idx < len(mixer.sends):
+                                            send = mixer.sends[send_idx]
+                                            if hasattr(send, 'remove_value_listener'):
+                                                send.remove_value_listener(listener_func)
+                    
+                    elif listener_type.startswith('macro_'):
+                        # Handle rack macro cleanup
+                        macro_idx = int(listener_type.split('_')[1])
+                        if hasattr(device, 'macros') and macro_idx < len(device.macros):
+                            macro = device.macros[macro_idx]
+                            if hasattr(macro, 'remove_value_listener'):
+                                macro.remove_value_listener(listener_func)
                 except:
                     pass
                     
@@ -411,8 +637,8 @@ class DeviceManager:
         if self.c_surface._is_connected:
             device = self._get_device(track_idx, device_idx)
             if device:
-                self.c_surface.log_message(f"🔘 Device T{track_idx}D{device_idx} enabled: {device.is_enabled}")
-                self._send_device_enabled_state(track_idx, device_idx, device.is_enabled)
+                self.c_surface.log_message(f"🔘 Device T{track_idx}D{device_idx} enabled: {device.is_active}")
+                self._send_device_enabled_state(track_idx, device_idx, device.is_active)
     
     def _on_parameter_value_changed(self, track_idx, device_idx, param_idx):
         """Device parameter value changed"""
@@ -458,6 +684,97 @@ class DeviceManager:
                 self.c_surface.log_message(f"🎨 Chain T{track_idx}D{device_idx}C{chain_idx} color: {color_rgb}")
                 self._send_chain_color(track_idx, device_idx, chain_idx, color_rgb)
     
+    def _on_chain_mute_changed(self, track_idx, device_idx, chain_idx):
+        """Chain mute state changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'mute'):
+                    self.c_surface.log_message(f"🔇 Chain T{track_idx}D{device_idx}C{chain_idx} mute: {chain.mute}")
+                    self._send_chain_mute(track_idx, device_idx, chain_idx, chain.mute)
+    
+    def _on_chain_solo_changed(self, track_idx, device_idx, chain_idx):
+        """Chain solo state changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'solo'):
+                    self.c_surface.log_message(f"🔊 Chain T{track_idx}D{device_idx}C{chain_idx} solo: {chain.solo}")
+                    self._send_chain_solo(track_idx, device_idx, chain_idx, chain.solo)
+    
+    def _on_chain_devices_changed(self, track_idx, device_idx, chain_idx):
+        """Chain devices changed"""
+        if self.c_surface._is_connected:
+            self.c_surface.log_message(f"🎛️ Chain T{track_idx}D{device_idx}C{chain_idx} devices changed")
+            self._send_chain_devices(track_idx, device_idx, chain_idx)
+    
+    def _on_chain_volume_changed(self, track_idx, device_idx, chain_idx):
+        """Chain volume changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'mixer_device') and chain.mixer_device:
+                    mixer = chain.mixer_device
+                    if hasattr(mixer, 'volume') and hasattr(mixer.volume, 'value'):
+                        volume = mixer.volume.value
+                        self.c_surface.log_message(f"🔊 Chain T{track_idx}D{device_idx}C{chain_idx} volume: {volume:.2f}")
+                        self._send_chain_volume(track_idx, device_idx, chain_idx, volume)
+    
+    def _on_chain_pan_changed(self, track_idx, device_idx, chain_idx):
+        """Chain pan changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'mixer_device') and chain.mixer_device:
+                    mixer = chain.mixer_device
+                    if hasattr(mixer, 'panning') and hasattr(mixer.panning, 'value'):
+                        pan = mixer.panning.value
+                        self.c_surface.log_message(f"🔄 Chain T{track_idx}D{device_idx}C{chain_idx} pan: {pan:.2f}")
+                        self._send_chain_pan(track_idx, device_idx, chain_idx, pan)
+    
+    def _on_chain_send_changed(self, track_idx, device_idx, chain_idx, send_idx):
+        """Chain send changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'mixer_device') and chain.mixer_device:
+                    mixer = chain.mixer_device
+                    if hasattr(mixer, 'sends') and send_idx < len(mixer.sends):
+                        send = mixer.sends[send_idx]
+                        if hasattr(send, 'value'):
+                            value = send.value
+                            self.c_surface.log_message(f"📤 Chain T{track_idx}D{device_idx}C{chain_idx}S{send_idx} send: {value:.2f}")
+                            self._send_chain_send(track_idx, device_idx, chain_idx, send_idx, value)
+    
+    def _on_chain_crossfade_changed(self, track_idx, device_idx, chain_idx):
+        """Chain crossfade assignment changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'mixer_device') and chain.mixer_device:
+                    mixer = chain.mixer_device
+                    if hasattr(mixer, 'crossfade_assign'):
+                        assign = mixer.crossfade_assign
+                        self.c_surface.log_message(f"⚖️ Chain T{track_idx}D{device_idx}C{chain_idx} crossfade: {assign}")
+                        self._send_chain_crossfade(track_idx, device_idx, chain_idx, assign)
+    
+    def _on_rack_macro_changed(self, track_idx, device_idx, macro_idx):
+        """Rack macro parameter changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'macros') and macro_idx < len(device.macros):
+                macro = device.macros[macro_idx]
+                if hasattr(macro, 'value'):
+                    value = macro.value
+                    self.c_surface.log_message(f"🎚️ Rack T{track_idx}D{device_idx} macro {macro_idx}: {value:.2f}")
+                    self._send_rack_macro(track_idx, device_idx, macro_idx, value)
+    
     def _on_drum_pad_name_changed(self, track_idx, device_idx, pad_idx):
         """Drum pad name changed"""
         if self.c_surface._is_connected:
@@ -468,6 +785,74 @@ class DeviceManager:
                     drum_pad = device.drum_pads[pad_note]
                     self.c_surface.log_message(f"🥁 Drum pad T{track_idx}D{device_idx}P{pad_idx} name: '{drum_pad.name}'")
                     self._send_drum_pad_name(track_idx, device_idx, pad_idx, drum_pad.name)
+                    self._send_drum_pad_info(track_idx, device_idx, pad_idx)
+    
+    def _on_drum_pad_mute_changed(self, track_idx, device_idx, pad_idx):
+        """Drum pad mute state changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'drum_pads'):
+                pad_note = pad_idx + 36
+                if pad_note < len(device.drum_pads) and device.drum_pads[pad_note]:
+                    drum_pad = device.drum_pads[pad_note]
+                    if hasattr(drum_pad, 'mute'):
+                        self.c_surface.log_message(f"🔇 Drum pad T{track_idx}D{device_idx}P{pad_idx} mute: {drum_pad.mute}")
+                        self._send_drum_pad_info(track_idx, device_idx, pad_idx)
+    
+    def _on_drum_pad_solo_changed(self, track_idx, device_idx, pad_idx):
+        """Drum pad solo state changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'drum_pads'):
+                pad_note = pad_idx + 36
+                if pad_note < len(device.drum_pads) and device.drum_pads[pad_note]:
+                    drum_pad = device.drum_pads[pad_note]
+                    if hasattr(drum_pad, 'solo'):
+                        self.c_surface.log_message(f"🔊 Drum pad T{track_idx}D{device_idx}P{pad_idx} solo: {drum_pad.solo}")
+                        self._send_drum_pad_info(track_idx, device_idx, pad_idx)
+    
+    def _on_drum_pad_sample_changed(self, track_idx, device_idx, pad_idx):
+        """Drum pad sample changed"""
+        if self.c_surface._is_connected:
+            self.c_surface.log_message(f"🎧 Drum pad T{track_idx}D{device_idx}P{pad_idx} sample changed")
+            self._send_drum_pad_info(track_idx, device_idx, pad_idx)
+    
+    def _on_plugin_preset_changed(self, track_idx, device_idx):
+        """Plugin preset changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device:
+                preset_name = getattr(device, 'selected_preset_name', 'Unknown')
+                preset_index = getattr(device, 'selected_preset_index', -1)
+                self.c_surface.log_message(f"🎵 Plugin T{track_idx}D{device_idx} preset: {preset_name} ({preset_index})")
+                self._send_plugin_preset_info(track_idx, device_idx, preset_index, preset_name)
+    
+    def _on_plugin_program_changed(self, track_idx, device_idx):
+        """Plugin program/bank changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device:
+                program_name = getattr(device, 'selected_program_name', 'Unknown')
+                self.c_surface.log_message(f"🎹 Plugin T{track_idx}D{device_idx} program: {program_name}")
+                self._send_plugin_program_info(track_idx, device_idx, program_name)
+    
+    def _on_plugin_latency_changed(self, track_idx, device_idx):
+        """Plugin latency changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device:
+                latency = getattr(device, 'latency_in_ms', 0.0)
+                self.c_surface.log_message(f"⏱️ Plugin T{track_idx}D{device_idx} latency: {latency:.1f}ms")
+                self._send_plugin_latency_info(track_idx, device_idx, latency)
+    
+    def _on_plugin_ui_changed(self, track_idx, device_idx):
+        """Plugin UI visibility changed"""
+        if self.c_surface._is_connected:
+            device = self._get_device(track_idx, device_idx)
+            if device:
+                ui_visible = getattr(device, 'is_showing_plugin_ui', False)
+                self.c_surface.log_message(f"🖥️ Plugin T{track_idx}D{device_idx} UI visible: {ui_visible}")
+                self._send_plugin_ui_info(track_idx, device_idx, ui_visible)
     
     def _on_drum_pad_chains_changed(self, track_idx, device_idx, pad_idx):
         """Drum pad chains changed"""
@@ -569,7 +954,7 @@ class DeviceManager:
         """Send selected chain to hardware"""
         try:
             payload = [track_idx, device_idx, chain_idx if chain_idx >= 0 else 127]
-            self.c_surface._send_sysex_command(CMD_DEVICE_CHAIN, payload)
+            self.c_surface._send_sysex_command(CMD_CHAIN_SELECT, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending selected chain T{track_idx}D{device_idx}: {e}")
     
@@ -618,6 +1003,87 @@ class DeviceManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending chain color T{track_idx}D{device_idx}C{chain_idx}: {e}")
     
+    def _send_chain_mute(self, track_idx, device_idx, chain_idx, mute_state):
+        """Send chain mute state to hardware"""
+        try:
+            payload = [track_idx, device_idx, chain_idx, 1 if mute_state else 0]
+            self.c_surface._send_sysex_command(CMD_CHAIN_MUTE, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain mute T{track_idx}D{device_idx}C{chain_idx}: {e}")
+    
+    def _send_chain_solo(self, track_idx, device_idx, chain_idx, solo_state):
+        """Send chain solo state to hardware"""
+        try:
+            payload = [track_idx, device_idx, chain_idx, 1 if solo_state else 0]
+            self.c_surface._send_sysex_command(CMD_CHAIN_SOLO, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain solo T{track_idx}D{device_idx}C{chain_idx}: {e}")
+    
+    def _send_chain_devices(self, track_idx, device_idx, chain_idx):
+        """Send chain devices list to hardware"""
+        try:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'chains') and chain_idx < len(device.chains):
+                chain = device.chains[chain_idx]
+                if hasattr(chain, 'devices'):
+                    device_names = []
+                    for chain_device in chain.devices[:4]:  # Max 4 devices per chain
+                        if chain_device:
+                            name_bytes = chain_device.name.encode('utf-8')[:8]
+                            device_names.extend([len(name_bytes)] + list(name_bytes))
+                    
+                    payload = [track_idx, device_idx, chain_idx, len(chain.devices)] + device_names
+                    if len(payload) <= 50:  # Reasonable size limit
+                        self.c_surface._send_sysex_command(CMD_DEVICE_CHAIN, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain devices T{track_idx}D{device_idx}C{chain_idx}: {e}")
+    
+    def _send_chain_volume(self, track_idx, device_idx, chain_idx, volume):
+        """Send chain volume to hardware"""
+        try:
+            volume_127 = int(volume * 127)
+            payload = [track_idx, device_idx, chain_idx, volume_127]
+            self.c_surface._send_sysex_command(CMD_CHAIN_VOLUME, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain volume T{track_idx}D{device_idx}C{chain_idx}: {e}")
+    
+    def _send_chain_pan(self, track_idx, device_idx, chain_idx, pan):
+        """Send chain pan to hardware"""
+        try:
+            pan_127 = int((pan + 1.0) * 63.5)  # Convert -1.0 to 1.0 range to 0-127
+            payload = [track_idx, device_idx, chain_idx, pan_127]
+            self.c_surface._send_sysex_command(CMD_CHAIN_PAN, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain pan T{track_idx}D{device_idx}C{chain_idx}: {e}")
+    
+    def _send_chain_send(self, track_idx, device_idx, chain_idx, send_idx, value):
+        """Send chain send level to hardware"""
+        try:
+            send_127 = int(value * 127)
+            payload = [track_idx, device_idx, chain_idx, send_idx, send_127]
+            self.c_surface._send_sysex_command(CMD_CHAIN_SEND, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain send T{track_idx}D{device_idx}C{chain_idx}S{send_idx}: {e}")
+    
+    def _send_chain_crossfade(self, track_idx, device_idx, chain_idx, assign):
+        """Send chain crossfade assignment to hardware"""
+        try:
+            # Convert crossfade assign to number: 0=A, 1=None, 2=B
+            assign_val = 0 if assign == 0 else (2 if assign == 2 else 1)
+            payload = [track_idx, device_idx, chain_idx, assign_val]
+            self.c_surface._send_sysex_command(CMD_CHAIN_CROSSFADE, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending chain crossfade T{track_idx}D{device_idx}C{chain_idx}: {e}")
+    
+    def _send_rack_macro(self, track_idx, device_idx, macro_idx, value):
+        """Send rack macro value to hardware"""
+        try:
+            value_127 = int(value * 127)
+            payload = [track_idx, device_idx, macro_idx, value_127]
+            self.c_surface._send_sysex_command(CMD_RACK_MACRO, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending rack macro T{track_idx}D{device_idx}M{macro_idx}: {e}")
+    
     def _send_drum_pad_name(self, track_idx, device_idx, pad_idx, name):
         """Send drum pad name to hardware"""
         try:
@@ -650,6 +1116,121 @@ class DeviceManager:
             self.c_surface._send_sysex_command(CMD_DRUM_RACK_STATE, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending selected drum pad T{track_idx}D{device_idx}: {e}")
+    
+    def _send_drum_pad_info(self, track_idx, device_idx, pad_idx):
+        """Send comprehensive drum pad information to hardware"""
+        try:
+            device = self._get_device(track_idx, device_idx)
+            if device and hasattr(device, 'drum_pads'):
+                pad_note = pad_idx + 36
+                if pad_note < len(device.drum_pads) and device.drum_pads[pad_note]:
+                    drum_pad = device.drum_pads[pad_note]
+                    
+                    # Pack drum pad data
+                    name_bytes = drum_pad.name.encode('utf-8')[:8] if hasattr(drum_pad, 'name') else []
+                    
+                    payload = [
+                        track_idx, device_idx, pad_idx, pad_note,  # Basic indices
+                        len(name_bytes)  # Name length
+                    ]
+                    payload.extend(list(name_bytes))  # Pad name
+                    
+                    # Pad state flags
+                    flags = 0
+                    if hasattr(drum_pad, 'mute') and drum_pad.mute:
+                        flags |= 0x01  # Muted
+                    if hasattr(drum_pad, 'solo') and drum_pad.solo:
+                        flags |= 0x02  # Solo
+                    if hasattr(drum_pad, 'chains') and drum_pad.chains:
+                        flags |= 0x04  # Has chains
+                    
+                    # Check for sample
+                    has_sample = False
+                    if hasattr(drum_pad, 'canonical_parent'):
+                        try:
+                            parent = drum_pad.canonical_parent
+                            has_sample = (hasattr(parent, 'sample') and 
+                                        parent.sample is not None and
+                                        hasattr(parent.sample, 'file_path') and
+                                        parent.sample.file_path != '')
+                        except Exception:
+                            pass
+                    
+                    if has_sample:
+                        flags |= 0x08  # Has sample
+                    
+                    payload.append(flags)
+                    
+                    # Chain count
+                    chain_count = 0
+                    if hasattr(drum_pad, 'chains') and drum_pad.chains:
+                        chain_count = len(drum_pad.chains)
+                    payload.append(min(chain_count, 255))  # Max 255 chains
+                    
+                    self.c_surface._send_sysex_command(CMD_DRUM_PAD_STATE, payload)
+                    
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending drum pad info T{track_idx}D{device_idx}P{pad_idx}: {e}")
+    
+    def _send_plugin_preset_info(self, track_idx, device_idx, preset_index, preset_name):
+        """Send plugin preset information to hardware"""
+        try:
+            name_bytes = preset_name.encode('utf-8')[:16] if preset_name else []
+            payload = [
+                track_idx, device_idx,
+                (preset_index >> 8) & 0x7F,  # High byte
+                preset_index & 0x7F,         # Low byte  
+                len(name_bytes)
+            ]
+            payload.extend(list(name_bytes))
+            
+            # Could add CMD_PLUGIN_PRESET = 0x71 to consts.py
+            self.c_surface._send_sysex_command(0x71, payload)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending plugin preset info: {e}")
+    
+    def _send_plugin_program_info(self, track_idx, device_idx, program_name):
+        """Send plugin program information to hardware"""
+        try:
+            name_bytes = program_name.encode('utf-8')[:16] if program_name else []
+            payload = [track_idx, device_idx, len(name_bytes)]
+            payload.extend(list(name_bytes))
+            
+            # Could add CMD_PLUGIN_PROGRAM = 0x72 to consts.py
+            self.c_surface._send_sysex_command(0x72, payload)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending plugin program info: {e}")
+    
+    def _send_plugin_latency_info(self, track_idx, device_idx, latency_ms):
+        """Send plugin latency information to hardware"""
+        try:
+            # Convert float latency to integer milliseconds
+            latency_int = int(latency_ms) & 0x3FFF  # Max ~16 seconds
+            
+            payload = [
+                track_idx, device_idx,
+                (latency_int >> 7) & 0x7F,  # High 7 bits
+                latency_int & 0x7F           # Low 7 bits
+            ]
+            
+            # Could add CMD_PLUGIN_LATENCY = 0x73 to consts.py
+            self.c_surface._send_sysex_command(0x73, payload)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending plugin latency info: {e}")
+    
+    def _send_plugin_ui_info(self, track_idx, device_idx, ui_visible):
+        """Send plugin UI visibility information to hardware"""
+        try:
+            payload = [track_idx, device_idx, 1 if ui_visible else 0]
+            
+            # Could add CMD_PLUGIN_UI = 0x74 to consts.py
+            self.c_surface._send_sysex_command(0x74, payload)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending plugin UI info: {e}")
     
     def _send_neotrellis_drum_grid(self, track_idx, device_idx):
         """Send complete NeoTrellis drum grid state (4x8 = 32 pads)"""
@@ -745,7 +1326,7 @@ class DeviceManager:
             
         info = {
             'name': device.name,
-            'is_enabled': device.is_enabled,
+            'is_active': device.is_active,
             'class_name': device.__class__.__name__,
             'parameters': []
         }
@@ -760,14 +1341,68 @@ class DeviceManager:
                 'max': param.max
             })
         
-        # Add device-specific info
+        # Add RackDevice and Chain class comprehensive info
         if hasattr(device, 'can_have_chains') and device.can_have_chains:
             info['chains'] = []
-            for chain in device.chains[:4]:
-                info['chains'].append({
-                    'name': chain.name,
-                    'color': ColorUtils.live_color_to_rgb(chain.color)
-                })
+            for chain_idx, chain in enumerate(device.chains[:8]):  # Support up to 8 chains
+                chain_info = {
+                    'index': chain_idx,
+                    'name': getattr(chain, 'name', f'Chain {chain_idx}'),
+                    'color': ColorUtils.live_color_to_rgb(getattr(chain, 'color', 0)),
+                    'mute': getattr(chain, 'mute', False),
+                    'solo': getattr(chain, 'solo', False),
+                    'devices': []
+                }
+                
+                # Chain devices list (Chain.devices property)
+                if hasattr(chain, 'devices'):
+                    for device_idx, chain_device in enumerate(chain.devices[:4]):
+                        if chain_device:
+                            chain_info['devices'].append({
+                                'index': device_idx,
+                                'name': chain_device.name,
+                                'is_active': getattr(chain_device, 'is_active', True),
+                                'class_name': chain_device.__class__.__name__
+                            })
+                
+                # Chain mixer device info (ChainMixerDevice)
+                if hasattr(chain, 'mixer_device') and chain.mixer_device:
+                    mixer = chain.mixer_device
+                    chain_info['mixer'] = {
+                        'volume': getattr(mixer.volume, 'value', 1.0) if hasattr(mixer, 'volume') else 1.0,
+                        'pan': getattr(mixer.panning, 'value', 0.0) if hasattr(mixer, 'panning') else 0.0,
+                        'crossfade_assign': getattr(mixer, 'crossfade_assign', 1),
+                        'sends': []
+                    }
+                    
+                    # Chain sends
+                    if hasattr(mixer, 'sends'):
+                        for send_idx, send in enumerate(mixer.sends[:4]):
+                            if send:
+                                chain_info['mixer']['sends'].append({
+                                    'index': send_idx,
+                                    'value': getattr(send, 'value', 0.0)
+                                })
+                
+                info['chains'].append(chain_info)
+            
+            # Selected chain info
+            if hasattr(device, 'view') and hasattr(device.view, 'selected_chain'):
+                selected_chain = device.view.selected_chain
+                info['selected_chain_idx'] = list(device.chains).index(selected_chain) if selected_chain else -1
+            
+            # Rack macro controls
+            if hasattr(device, 'macros'):
+                info['macros'] = []
+                for macro_idx, macro in enumerate(device.macros[:8]):
+                    if macro:
+                        info['macros'].append({
+                            'index': macro_idx,
+                            'name': getattr(macro, 'name', f'Macro {macro_idx}'),
+                            'value': getattr(macro, 'value', 0.0),
+                            'min': getattr(macro, 'min', 0.0),
+                            'max': getattr(macro, 'max', 1.0)
+                        })
         
         if hasattr(device, 'can_have_drum_pads') and device.can_have_drum_pads:
             info['drum_pads'] = []
@@ -775,11 +1410,37 @@ class DeviceManager:
                 pad_note = pad_idx + 36
                 if pad_note < len(device.drum_pads) and device.drum_pads[pad_note]:
                     drum_pad = device.drum_pads[pad_note]
-                    info['drum_pads'].append({
+                    # Complete DrumPad info according to Live Object Model
+                    pad_info = {
                         'index': pad_idx,
                         'note': pad_note,
-                        'name': drum_pad.name
-                    })
+                        'name': getattr(drum_pad, 'name', f'Pad {pad_idx}'),
+                        'mute': getattr(drum_pad, 'mute', False),
+                        'solo': getattr(drum_pad, 'solo', False),
+                        'has_chains': bool(hasattr(drum_pad, 'chains') and drum_pad.chains),
+                        'chain_count': len(drum_pad.chains) if hasattr(drum_pad, 'chains') and drum_pad.chains else 0
+                    }
+                    
+                    # Sample information (if available)
+                    if hasattr(drum_pad, 'canonical_parent'):
+                        try:
+                            parent = drum_pad.canonical_parent
+                            if hasattr(parent, 'sample') and parent.sample:
+                                sample = parent.sample
+                                pad_info.update({
+                                    'has_sample': True,
+                                    'sample_file': getattr(sample, 'file_path', ''),
+                                    'sample_length': getattr(sample, 'length', 0.0),
+                                    'sample_rate': getattr(sample, 'sample_rate', 44100)
+                                })
+                            else:
+                                pad_info['has_sample'] = False
+                        except Exception:
+                            pad_info['has_sample'] = False
+                    else:
+                        pad_info['has_sample'] = False
+                    
+                    info['drum_pads'].append(pad_info)
         
         return info
     
@@ -795,7 +1456,7 @@ class DeviceManager:
             
             # Send device basic info
             self._send_device_name(track_idx, device_idx, device.name)
-            self._send_device_enabled_state(track_idx, device_idx, device.is_enabled)
+            self._send_device_enabled_state(track_idx, device_idx, device.is_active)
             
             # Send parameters
             for param_idx, param in enumerate(device.parameters[:8]):

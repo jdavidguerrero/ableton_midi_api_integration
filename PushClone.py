@@ -14,6 +14,7 @@ from .DeviceManager import DeviceManager
 from .TransportManager import TransportManager
 from .BrowserManager import BrowserManager
 from .AutomationManager import AutomationManager
+from .GroovePoolManager import GroovePoolManager
 
 class PushClone(ControlSurface):
     """
@@ -86,6 +87,7 @@ class PushClone(ControlSurface):
             self._managers['transport'] = TransportManager(self)
             self._managers['browser'] = BrowserManager(self)
             self._managers['automation'] = AutomationManager(self)
+            self._managers['groove_pool'] = GroovePoolManager(self)
             
             self.log_message(f"✅ Initialized {len(self._managers)} managers")
             
@@ -297,6 +299,18 @@ class PushClone(ControlSurface):
             # Automation commands (0xC0-0xCF)
             elif 0xC0 <= command <= 0xCF:
                 self._managers['automation'].handle_automation_command(command, payload)
+            
+            # Groove Pool commands (0xD0-0xDF)
+            elif 0xD0 <= command <= 0xDF:
+                self._managers['groove_pool'].handle_groove_command(command, payload)
+                
+            # MIDI Clip commands (0xE0-0xEF)
+            elif 0xE0 <= command <= 0xEF:
+                self._managers['clip'].handle_midi_clip_command(command, payload)
+                
+            # Song Creation commands (0xF0-0xFF)
+            elif 0xF0 <= command <= 0xFF:
+                self._handle_song_creation_command(command, payload)
             
             # View switching
             elif command == CMD_SWITCH_VIEW:
@@ -512,31 +526,38 @@ class PushClone(ControlSurface):
     def _toggle_track_mute(self, track_idx):
         """Toggle track mute"""
         try:
-            if track_idx < len(self.song().tracks):
-                track = self.song().tracks[track_idx]
+            track = self._get_track_safe(track_idx)
+            if track:
                 track.mute = not track.mute
                 self.log_message(f"🔇 Track {track_idx} mute: {track.mute}")
+            else:
+                self.log_message(f"❌ Invalid track index: {track_idx}")
         except Exception as e:
             self.log_message(f"❌ Error toggling track {track_idx} mute: {e}")
     
     def _toggle_track_solo(self, track_idx):
         """Toggle track solo"""
         try:
-            if track_idx < len(self.song().tracks):
-                track = self.song().tracks[track_idx]
+            track = self._get_track_safe(track_idx)
+            if track:
                 track.solo = not track.solo
                 self.log_message(f"🔊 Track {track_idx} solo: {track.solo}")
+            else:
+                self.log_message(f"❌ Invalid track index: {track_idx}")
         except Exception as e:
             self.log_message(f"❌ Error toggling track {track_idx} solo: {e}")
     
     def _toggle_track_arm(self, track_idx):
         """Toggle track arm"""
         try:
-            if track_idx < len(self.song().tracks):
-                track = self.song().tracks[track_idx]
-                if hasattr(track, 'can_be_armed') and track.can_be_armed:
-                    track.arm = not track.arm
-                    self.log_message(f"🔴 Track {track_idx} arm: {track.arm}")
+            track = self._get_track_safe(track_idx)
+            if track and hasattr(track, 'can_be_armed') and track.can_be_armed:
+                track.arm = not track.arm
+                self.log_message(f"🔴 Track {track_idx} arm: {track.arm}")
+            elif track:
+                self.log_message(f"⚠️ Track {track_idx} cannot be armed")
+            else:
+                self.log_message(f"❌ Invalid track index: {track_idx}")
         except Exception as e:
             self.log_message(f"❌ Error toggling track {track_idx} arm: {e}")
     
@@ -582,8 +603,8 @@ class PushClone(ControlSurface):
                 
                 if device_idx < len(devices):
                     device = devices[device_idx]
-                    device.is_enabled = not device.is_enabled
-                    self.log_message(f"🔘 T{track_idx}D{device_idx} enabled: {device.is_enabled}")
+                    device.is_active = not device.is_active
+                    self.log_message(f"🔘 T{track_idx}D{device_idx} enabled: {device.is_active}")
         except Exception as e:
             self.log_message(f"❌ Error toggling device T{track_idx}D{device_idx}: {e}")
     
@@ -662,6 +683,241 @@ class PushClone(ControlSurface):
         except Exception as e:
             self.log_message(f"❌ Error sending view {view_id} state: {e}")
 
+    # ========================================
+    # LIVE API SAFE ACCESS METHODS
+    # ========================================
+    
+    def _get_track_safe(self, track_idx):
+        """Safely get track by index with bounds checking"""
+        try:
+            tracks = self.song().tracks
+            if 0 <= track_idx < len(tracks):
+                return tracks[track_idx]
+            elif track_idx < len(tracks) + len(self.song().return_tracks):
+                return_idx = track_idx - len(tracks)
+                if 0 <= return_idx < len(self.song().return_tracks):
+                    return self.song().return_tracks[return_idx]
+            elif track_idx == len(tracks) + len(self.song().return_tracks):
+                return self.song().master_track
+            return None
+        except Exception as e:
+            self.log_message(f"❌ Error accessing track {track_idx}: {e}")
+            return None
+    
+    def _get_scene_safe(self, scene_idx):
+        """Safely get scene by index with bounds checking"""
+        try:
+            scenes = self.song().scenes
+            if 0 <= scene_idx < len(scenes):
+                return scenes[scene_idx]
+            return None
+        except Exception as e:
+            self.log_message(f"❌ Error accessing scene {scene_idx}: {e}")
+            return None
+    
+    def _get_device_safe(self, track_idx, device_idx):
+        """Safely get device by track and device index"""
+        try:
+            track = self._get_track_safe(track_idx)
+            if track and 0 <= device_idx < len(track.devices):
+                return track.devices[device_idx]
+            return None
+        except Exception as e:
+            self.log_message(f"❌ Error accessing device T{track_idx}D{device_idx}: {e}")
+            return None
+    
+    def _get_clip_slot_safe(self, track_idx, scene_idx):
+        """Safely get clip slot with bounds checking"""
+        try:
+            track = self._get_track_safe(track_idx)
+            if track and 0 <= scene_idx < len(track.clip_slots):
+                return track.clip_slots[scene_idx]
+            return None
+        except Exception as e:
+            self.log_message(f"❌ Error accessing clip slot T{track_idx}S{scene_idx}: {e}")
+            return None
+    
+    def _get_live_version(self):
+        """Get Live version for compatibility checks"""
+        try:
+            if hasattr(self.application(), 'get_major_version'):
+                major = self.application().get_major_version()
+                minor = getattr(self.application(), 'get_minor_version', lambda: 0)()
+                return (major, minor)
+            return (11, 0)  # Default fallback
+        except Exception:
+            return (11, 0)  # Safe fallback
+    
+    def _has_feature(self, feature_name, min_version=(11, 0)):
+        """Check if Live version supports a feature"""
+        try:
+            current_version = self._get_live_version()
+            return current_version >= min_version
+        except Exception:
+            return False  # Conservative fallback
+    
+    def _safe_hasattr_and_call(self, obj, attr_name, default_value=None):
+        """Safely check attribute existence and get value with fallback"""
+        try:
+            if hasattr(obj, attr_name):
+                attr = getattr(obj, attr_name)
+                return attr() if callable(attr) else attr
+            return default_value
+        except Exception:
+            return default_value
+    
+    def _handle_song_creation_command(self, command, payload):
+        """Handle Song creation and manipulation commands"""
+        try:
+            if command == CMD_CREATE_AUDIO_TRACK:
+                self._create_audio_track()
+                
+            elif command == CMD_CREATE_MIDI_TRACK:
+                self._create_midi_track()
+                
+            elif command == CMD_CREATE_RETURN_TRACK:
+                self._create_return_track()
+                
+            elif command == CMD_CREATE_SCENE:
+                self._create_scene()
+                
+            elif command == CMD_DUPLICATE_TRACK and len(payload) >= 1:
+                track_idx = payload[0]
+                self._duplicate_track(track_idx)
+                
+            elif command == CMD_DUPLICATE_CLIP and len(payload) >= 4:
+                src_track, src_scene, dst_track, dst_scene = payload[0], payload[1], payload[2], payload[3]
+                self._duplicate_clip(src_track, src_scene, dst_track, dst_scene)
+                
+            else:
+                self.log_message(f"❓ Unknown song creation command: 0x{command:02X}")
+                
+        except Exception as e:
+            self.log_message(f"❌ Error handling song creation command 0x{command:02X}: {e}")
+    
+    def _create_audio_track(self):
+        """Create a new audio track using Live API"""
+        try:
+            if hasattr(self.song(), 'create_audio_track'):
+                new_track_idx = len(self.song().tracks)
+                self.song().create_audio_track(new_track_idx)
+                self.log_message(f"🎤 Created audio track at index {new_track_idx}")
+                return True
+            else:
+                self.log_message("⚠️ create_audio_track not available in this Live version")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Error creating audio track: {e}")
+            return False
+    
+    def _create_midi_track(self):
+        """Create a new MIDI track using Live API"""
+        try:
+            if hasattr(self.song(), 'create_midi_track'):
+                new_track_idx = len(self.song().tracks)
+                self.song().create_midi_track(new_track_idx)
+                self.log_message(f"🎹 Created MIDI track at index {new_track_idx}")
+                return True
+            else:
+                self.log_message("⚠️ create_midi_track not available in this Live version")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Error creating MIDI track: {e}")
+            return False
+    
+    def _create_return_track(self):
+        """Create a new return track using Live API"""
+        try:
+            if hasattr(self.song(), 'create_return_track'):
+                new_return_idx = len(self.song().return_tracks)
+                self.song().create_return_track()
+                self.log_message(f"🔄 Created return track at index {new_return_idx}")
+                return True
+            else:
+                self.log_message("⚠️ create_return_track not available in this Live version")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Error creating return track: {e}")
+            return False
+    
+    def _create_scene(self):
+        """Create a new scene using Live API"""
+        try:
+            if hasattr(self.song(), 'create_scene'):
+                new_scene_idx = len(self.song().scenes)
+                self.song().create_scene(new_scene_idx)
+                self.log_message(f"🎬 Created scene at index {new_scene_idx}")
+                return True
+            else:
+                self.log_message("⚠️ create_scene not available in this Live version")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Error creating scene: {e}")
+            return False
+    
+    def _duplicate_track(self, track_idx):
+        """Duplicate a track using Live API"""
+        try:
+            track = self._get_track_safe(track_idx)
+            if track:
+                if hasattr(track, 'duplicate_clip_slot'):
+                    # Method varies by Live version - try different approaches
+                    if hasattr(self.song(), 'duplicate_track'):
+                        self.song().duplicate_track(track_idx)
+                        self.log_message(f"📋 Duplicated track {track_idx}")
+                        return True
+                    else:
+                        self.log_message(f"⚠️ Track duplication not available in this Live version")
+                        return False
+                else:
+                    self.log_message(f"⚠️ Track {track_idx} doesn't support duplication")
+                    return False
+            else:
+                self.log_message(f"❌ Invalid track index: {track_idx}")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Error duplicating track {track_idx}: {e}")
+            return False
+    
+    def _duplicate_clip(self, src_track_idx, src_scene_idx, dst_track_idx, dst_scene_idx):
+        """Duplicate a clip using Live API"""
+        try:
+            src_clip_slot = self._get_clip_slot_safe(src_track_idx, src_scene_idx)
+            dst_clip_slot = self._get_clip_slot_safe(dst_track_idx, dst_scene_idx)
+            
+            if src_clip_slot and dst_clip_slot:
+                if src_clip_slot.has_clip:
+                    if hasattr(src_clip_slot, 'duplicate_clip_to'):
+                        src_clip_slot.duplicate_clip_to(dst_clip_slot)
+                        self.log_message(
+                            f"📋 Duplicated clip: T{src_track_idx}S{src_scene_idx} → T{dst_track_idx}S{dst_scene_idx}"
+                        )
+                        return True
+                    elif hasattr(dst_clip_slot, 'duplicate_clip_slot'):
+                        dst_clip_slot.duplicate_clip_slot(src_clip_slot)
+                        self.log_message(
+                            f"📋 Duplicated clip: T{src_track_idx}S{src_scene_idx} → T{dst_track_idx}S{dst_scene_idx}"
+                        )
+                        return True
+                    else:
+                        # Fallback: manual duplication for MIDI clips
+                        if hasattr(self._managers['clip'], 'duplicate_midi_clip_notes'):
+                            return self._managers['clip'].duplicate_midi_clip_notes(
+                                src_track_idx, src_scene_idx, dst_track_idx, dst_scene_idx
+                            )
+                        else:
+                            self.log_message("⚠️ Clip duplication not available in this Live version")
+                            return False
+                else:
+                    self.log_message(f"⚠️ Source clip slot T{src_track_idx}S{src_scene_idx} is empty")
+                    return False
+            else:
+                self.log_message(f"❌ Invalid clip slot indices")
+                return False
+        except Exception as e:
+            self.log_message(f"❌ Error duplicating clip: {e}")
+            return False
+    
     # ========================================
     # UTILITY METHODS
     # ========================================
