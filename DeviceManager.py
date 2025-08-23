@@ -1279,7 +1279,7 @@ class DeviceManager:
             
             # Send grid state: track, device, 32 color bytes
             payload = [track_idx, device_idx] + grid_data
-            self.c_surface._send_sysex_command(CMD_NEOTRELLIS_GRID, payload)
+            self.c_surface._send_sysex_command(CMD_NEOTRELLIS_GRID, payload, silent=True)
             
             self.c_surface.log_message(f"🎛️ Sent NeoTrellis grid for T{track_idx}D{device_idx}")
             

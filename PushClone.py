@@ -156,7 +156,7 @@ class PushClone(ControlSurface):
             message = SysExEncoder.create_sysex(command, payload)
             if message:
                 # Validate message before sending
-                if len(message) > 32:  # SysEx too long for typical hardware
+                if len(message) > 64:  # Increased limit for larger SysEx messages
                     if not silent:
                         self.log_message(f"⚠️ SysEx too long ({len(message)} bytes) for command 0x{command:02X}")
                     return
@@ -178,11 +178,11 @@ class PushClone(ControlSurface):
                         # Don't return - this is often a false positive due to encoding issues
                         # Instead, log it but continue sending
                 
-                # Validate all MIDI bytes are in valid range (0-127)
-                invalid_bytes = [b for b in message if b < 0 or b > 127]
+                # Validate all MIDI bytes are in valid range (0-127), ignoring header and footer
+                invalid_bytes = [b for b in message[4:-1] if b < 0 or b > 127]
                 if invalid_bytes:
                     if not silent:
-                        self.log_message(f"❌ Invalid MIDI bytes in SysEx 0x{command:02X}: {invalid_bytes}")
+                        self.log_message(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: {invalid_bytes}")
                     return
                 
                 try:
