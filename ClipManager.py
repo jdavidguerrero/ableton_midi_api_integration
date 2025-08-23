@@ -329,12 +329,14 @@ class ClipManager:
                         self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
             
             self._send_clip_state(track_idx, scene_idx)
+            self._send_neotrellis_clip_grid()
     
     def _on_clip_playing_changed(self, track_idx, scene_idx):
         """Clip playing status changed"""
         if self.c_surface._is_connected:
             self.c_surface.log_message(f"▶️ Clip T{track_idx}S{scene_idx} playing status changed")
             self._send_clip_state(track_idx, scene_idx)
+            self._send_neotrellis_clip_grid()
     
     def _on_clip_name_changed(self, track_idx, scene_idx):
         """Clip name changed"""
@@ -350,6 +352,7 @@ class ClipManager:
             color_rgb = ColorUtils.live_color_to_rgb(clip.color)
             self.c_surface.log_message(f"🎨 Clip T{track_idx}S{scene_idx} color: {color_rgb}")
             self._send_clip_state(track_idx, scene_idx)  # Send full state with new color
+            self._send_neotrellis_clip_grid()
     
     def _on_clip_loop_changed(self, track_idx, scene_idx):
         """Clip loop state changed"""
@@ -743,6 +746,24 @@ class ClipManager:
             self.c_surface._send_sysex_command(CMD_SCENE_IS_TRIGGERED, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending scene triggered S{scene_idx}: {e}")
+
+    def _send_neotrellis_clip_grid(self):
+        """Send the colors of all clips in the 4x8 grid to the NeoTrellis."""
+        if not self.c_surface._is_connected:
+            return
+
+        grid_data = []
+        for track_idx in range(4): # 4 tracks (rows)
+            for scene_idx in range(8): # 8 scenes (cols)
+                color = (0, 0, 0) # Default to black
+                if self._clip_exists(track_idx, scene_idx):
+                    clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
+                    color = ColorUtils.live_color_to_rgb(clip.color)
+                grid_data.append(color)
+        
+        message = SysExEncoder.encode_neotrellis_clip_grid(grid_data)
+        if message:
+            self.c_surface._send_midi(tuple(message))
     
     # ========================================
     # MIDI CLIP NOTE MANIPULATION METHODS
@@ -1248,6 +1269,8 @@ class ClipManager:
             # Send all scene states
             for scene_idx in self._scene_listeners.keys():
                 self.send_complete_scene_state(scene_idx)
+
+            self._send_neotrellis_clip_grid()
             
             self.c_surface.log_message("✅ Clip/scene state sent")
             

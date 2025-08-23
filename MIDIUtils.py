@@ -309,6 +309,79 @@ class SysExEncoder:
         payload = [track, device] + grid_data
         return SysExEncoder.create_sysex(CMD_NEOTRELLIS_GRID, payload)
 
+    @staticmethod
+    def encode_neotrellis_clip_grid(grid_data):
+        """
+        Encode NeoTrellis 8x4 clip grid colors
+        Args:
+            grid_data (list): 32 RGB color tuples (r, g, b)
+        Returns:
+            list: SysEx message
+        """
+        # Ensure we have exactly 32 values
+        while len(grid_data) < 32:
+            grid_data.append((0, 0, 0))
+        grid_data = grid_data[:32]
+        
+        payload = []
+        for r, g, b in grid_data:
+            payload.extend([r >> 1, g >> 1, b >> 1]) # Convert to 7-bit
+            
+        return SysExEncoder.create_sysex(CMD_NEOTRELLIS_CLIP_GRID, payload)
+
+    @staticmethod
+    def encode_step_sequencer_state(grid_data):
+        """
+        Encode Step Sequencer grid state
+        Args:
+            grid_data (list): 32 values representing the state of each step
+        Returns:
+            list: SysEx message
+        """
+        while len(grid_data) < 32:
+            grid_data.append(0)
+        grid_data = grid_data[:32]
+        
+        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_STATE, grid_data)
+
+    @staticmethod
+    def encode_step_sequencer_note(track, note, velocity):
+        """
+        Encode a step sequencer note on/off
+        Args:
+            track (int): track index
+            note (int): MIDI note number
+            velocity (int): Note velocity (0 for note off)
+        Returns:
+            list: SysEx message
+        """
+        payload = [track, note, velocity]
+        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_NOTE, payload)
+
+    @staticmethod
+    def encode_step_sequencer_resolution(resolution):
+        """
+        Encode step sequencer resolution change
+        Args:
+            resolution (int): New resolution index
+        Returns:
+            list: SysEx message
+        """
+        payload = [resolution]
+        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_RESOLUTION, payload)
+
+    @staticmethod
+    def encode_step_sequencer_page(page):
+        """
+        Encode step sequencer page change
+        Args:
+            page (int): New page index
+        Returns:
+            list: SysEx message
+        """
+        payload = [page]
+        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_PAGE, payload)
+
 # ========================================
 # ColorUtils CLASS (tu clase existente es perfecta)
 # ========================================

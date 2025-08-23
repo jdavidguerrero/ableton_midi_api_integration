@@ -91,6 +91,15 @@ CMD_DRUM_PAD_STATE = 0x49       # Drum pad state (Live → Teensy)
 CMD_DEVICE_CHAIN = 0x4A         # Device chain state (Live → Teensy)
 CMD_NEOTRELLIS_GRID = 0x4B      # NeoTrellis 4x8 grid state (Live → Teensy)
 CMD_DRUM_PAD_COLOR = 0x4C       # Drum pad color/state (Live → Teensy)
+CMD_NEOTRELLIS_CLIP_GRID = 0x4D # NeoTrellis 8x4 clip grid colors (Live → Teensy)
+
+# ========================================
+# STEP SEQUENCER COMMANDS (0x80-0x8F)
+# ========================================
+CMD_STEP_SEQUENCER_STATE = 0x80      # Sequencer grid state (Live → Teensy)
+CMD_STEP_SEQUENCER_NOTE = 0x81       # Add/remove note (Teensy → Live)
+CMD_STEP_SEQUENCER_RESOLUTION = 0x82 # Change resolution (Teensy → Live)
+CMD_STEP_SEQUENCER_PAGE = 0x83       # Change page (Teensy → Live)
 
 # ========================================
 # PLUGIN DEVICE COMMANDS (0x70-0x7F)

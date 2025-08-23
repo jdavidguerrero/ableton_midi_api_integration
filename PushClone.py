@@ -15,6 +15,7 @@ from .TransportManager import TransportManager
 from .BrowserManager import BrowserManager
 from .AutomationManager import AutomationManager
 from .GroovePoolManager import GroovePoolManager
+from .StepSequencerManager import StepSequencerManager
 
 class PushClone(ControlSurface):
     """
@@ -88,6 +89,7 @@ class PushClone(ControlSurface):
             self._managers['browser'] = BrowserManager(self)
             self._managers['automation'] = AutomationManager(self)
             self._managers['groove_pool'] = GroovePoolManager(self)
+            self._managers['step_sequencer'] = StepSequencerManager(self)
             
             self.log_message(f"✅ Initialized {len(self._managers)} managers")
             
@@ -107,6 +109,7 @@ class PushClone(ControlSurface):
             self._managers['transport'].setup_listeners()
             self._managers['browser'].setup_listeners()
             self._managers['automation'].setup_listeners()
+            self._managers['step_sequencer'].setup_listeners()
             
             self.log_message("✅ All managers setup complete")
             
@@ -124,6 +127,8 @@ class PushClone(ControlSurface):
                     self.log_message(f"✅ Cleaned up {manager_name} manager")
                 except Exception as e:
                     self.log_message(f"❌ Error cleaning {manager_name} manager: {e}")
+            
+            self._managers['step_sequencer'].cleanup_listeners()
             
             self.log_message("✅ All managers cleaned up")
             
@@ -320,6 +325,10 @@ class PushClone(ControlSurface):
             # Song Creation commands (0xF0-0xFF)
             elif 0xF0 <= command <= 0xFF:
                 self._handle_song_creation_command(command, payload)
+
+            # Step Sequencer commands (0x80-0x8F)
+            elif 0x80 <= command <= 0x8F:
+                self._managers['step_sequencer'].handle_step_sequencer_command(command, payload)
             
             # View switching
             elif command == CMD_SWITCH_VIEW:
@@ -372,6 +381,7 @@ class PushClone(ControlSurface):
             self._managers['device'].send_complete_state()
             self._managers['browser'].send_complete_state()
             self._managers['automation'].send_complete_state()
+            self._managers['step_sequencer'].send_complete_state()
             
             self.log_message("✅ Complete state sent from all managers")
             
