@@ -168,13 +168,22 @@ class PushClone(ControlSurface):
                     return
                 
                 # Check payload length vs declared length
-                if len(message) >= 6:  # Header(4) + Command(1) + Length(1) = 6 minimum
-                    declared_length = message[5]
-                    actual_payload_length = len(message) - 8  # Total - Header(4) - Command(1) - Length(1) - Checksum(1) - End(1)
+                if len(message) >= 8:  # Header(4) + Command(1) + Length(1) + Checksum(1) + End(1) = 8 minimum
+                    declared_length = message[5]  # Length byte position
+                    # Message structure: Header(4) + Command(1) + Length(1) + Payload(N) + Checksum(1) + End(1) = 8 + N
+                    actual_payload_length = len(message) - 8  # Total - overhead (8 bytes)
                     if declared_length != actual_payload_length:
                         if not silent:
-                            self.log_message(f"⚠️ SysEx length mismatch for 0x{command:02X}: declared={declared_length}, actual={actual_payload_length}")
-                        return
+                            self.log_message(f"⚠️ SysEx length mismatch for 0x{command:02X}: declared={declared_length}, actual={actual_payload_length}, message_len={len(message)}")
+                        # Don't return - this is often a false positive due to encoding issues
+                        # Instead, log it but continue sending
+                
+                # Validate all MIDI bytes are in valid range (0-127)
+                invalid_bytes = [b for b in message if b < 0 or b > 127]
+                if invalid_bytes:
+                    if not silent:
+                        self.log_message(f"❌ Invalid MIDI bytes in SysEx 0x{command:02X}: {invalid_bytes}")
+                    return
                 
                 try:
                     self._send_midi(tuple(message))

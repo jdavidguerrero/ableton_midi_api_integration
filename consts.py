@@ -120,40 +120,40 @@ CMD_TRANSPORT_QUANTIZE = 0x5A   # MIDI quantization (bidirectional)
 CMD_SESSION_RECORD = 0x5B       # Session record state (bidirectional)
 
 # ========================================
-# BROWSER/NAVIGATION COMMANDS (0xB0-0xBF)
+# BROWSER/NAVIGATION COMMANDS (0x60-0x6F) - RELOCATED
 # ========================================
-CMD_SELECTED_TRACK = 0xB0         # Selected track change (Live → Teensy)
-CMD_SELECTED_SCENE = 0xB1         # Selected scene change (Live → Teensy)
-CMD_DETAIL_CLIP = 0xB2            # Detail clip change (Live → Teensy)
-CMD_BROWSER_MODE = 0xB3           # Browser mode state (Live → Teensy)
+CMD_SELECTED_TRACK = 0x64         # Selected track change (Live → Teensy) - was 0xB0
+CMD_SELECTED_SCENE = 0x65         # Selected scene change (Live → Teensy) - was 0xB1  
+CMD_DETAIL_CLIP = 0x66            # Detail clip change (Live → Teensy) - was 0xB2
+CMD_BROWSER_MODE = 0x67           # Browser mode state (Live → Teensy) - was 0xB3
 
 # ========================================
-# AUTOMATION COMMANDS (0xC0-0xCF)
+# AUTOMATION COMMANDS (0x68-0x6F) - RELOCATED 
 # ========================================
-CMD_AUTOMATION_RECORD = 0xC0      # Automation record state (bidirectional)
-CMD_RE_ENABLE_AUTOMATION = 0xC1   # Re-enable automation (Teensy → Live)
-CMD_BACK_TO_ARRANGER = 0xC2       # Back to arranger (Teensy → Live)
-CMD_UNDO = 0xC3                   # Undo action (Teensy → Live)
-CMD_REDO = 0xC4                   # Redo action (Teensy → Live)
-CMD_CAPTURE_MIDI = 0xC5           # Capture MIDI (Teensy → Live)
-CMD_QUANTIZE_CLIP = 0xC6          # Quantize clip (Teensy → Live)
-CMD_QUANTIZE_NOTES = 0xC7         # Quantize notes (Teensy → Live)
+CMD_AUTOMATION_RECORD = 0x68      # Automation record state (bidirectional) - was 0xC0
+CMD_RE_ENABLE_AUTOMATION = 0x69   # Re-enable automation (Teensy → Live) - was 0xC1
+CMD_BACK_TO_ARRANGER = 0x6A       # Back to arranger (Teensy → Live) - was 0xC2
+CMD_UNDO = 0x6B                   # Undo action (Teensy → Live) - was 0xC3
+CMD_REDO = 0x6C                   # Redo action (Teensy → Live) - was 0xC4
+CMD_CAPTURE_MIDI = 0x6D           # Capture MIDI (Teensy → Live) - was 0xC5
+CMD_QUANTIZE_CLIP = 0x6E          # Quantize clip (Teensy → Live) - was 0xC6
+CMD_QUANTIZE_NOTES = 0x6F         # Quantize notes (Teensy → Live) - was 0xC7
 
 # ========================================
-# GROOVE POOL COMMANDS (0xD0-0xDF)
+# GROOVE POOL COMMANDS (0x78-0x7F) - RELOCATED
 # ========================================
-CMD_GROOVE_POOL = 0xD0            # Groove pool templates (Live → Teensy)
-CMD_GROOVE_AMOUNT = 0xD1          # Track groove amount (bidirectional)
-CMD_GROOVE_TEMPLATE = 0xD2        # Track groove template (bidirectional)
+CMD_GROOVE_POOL = 0x78            # Groove pool templates (Live → Teensy) - was 0xD0
+CMD_GROOVE_AMOUNT = 0x79          # Track groove amount (bidirectional) - was 0xD1
+CMD_GROOVE_TEMPLATE = 0x7A        # Track groove template (bidirectional) - was 0xD2
 
 # ========================================
-# MIDI CLIP COMMANDS (0xE0-0xEF)
+# MIDI CLIP COMMANDS (0x7B-0x7F) - RELOCATED  
 # ========================================
-CMD_MIDI_NOTES = 0xE0             # MIDI notes data (Live → Teensy)
-CMD_MIDI_NOTE_ADD = 0xE1          # Add MIDI note (Teensy → Live)
-CMD_MIDI_NOTE_REMOVE = 0xE2       # Remove MIDI note (Teensy → Live)
-CMD_MIDI_NOTE_MODIFY = 0xE3       # Modify MIDI note (Teensy → Live)
-CMD_MIDI_CLIP_QUANTIZE = 0xE4     # Quantize MIDI clip (Teensy → Live)
+CMD_MIDI_NOTES = 0x7B             # MIDI notes data (Live → Teensy) - was 0xE0
+CMD_MIDI_NOTE_ADD = 0x7C          # Add MIDI note (Teensy → Live) - was 0xE1
+CMD_MIDI_NOTE_REMOVE = 0x7D       # Remove MIDI note (Teensy → Live) - was 0xE2
+CMD_MIDI_NOTE_MODIFY = 0x7E       # Modify MIDI note (Teensy → Live) - was 0xE3
+CMD_MIDI_CLIP_QUANTIZE = 0x7F     # Quantize MIDI clip (Teensy → Live) - was 0xE4
 
 # ========================================
 # SONG CREATION COMMANDS (0xF0-0xFF)
