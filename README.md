@@ -28,6 +28,11 @@ A complete Ableton Live remote script for creating a custom Push-style controlle
 - **`TransportManager.py`** - Transport controls
 - **`BrowserManager.py`** - Navigation and view switching
 - **`AutomationManager.py`** - Automation features
+- **`GroovePoolManager.py`** - Groove pool management
+- **`NoteViewManager.py`** - Note view with drum and melodic modes
+- **`StepSequencerManager.py`** - Step sequencer
+- **`SessionRing.py`** - Session ring navigation
+- **`MessageCoalescer.py`** - Performance-optimized message batching
 
 ### Documentation
 - **`PushClone_API_Documentation.md`** - Complete API documentation
@@ -63,15 +68,23 @@ A complete Ableton Live remote script for creating a custom Push-style controlle
 
 ## 🎯 MIDI Commands
 
-The script implements **80+ MIDI commands** covering:
+The script implements **128+ MIDI commands** covering:
 
-- **Transport** (0x50-0x5F): Play, record, loop, metronome
-- **Tracks** (0x20-0x2F): Volume, pan, mute, solo, sends
-- **Clips** (0x10-0x1F): States, names, colors, loop points
-- **Devices** (0x40-0x4F): Parameters, drum racks, chains
-- **Navigation** (0xB0-0xBF): Track/scene selection
-- **Views** (0x70-0x7F): Session, arrangement, detail
-- **Automation** (0xC0-0xCF): Recording, undo/redo
+- **Transport/Automation** (0x40-0x4F): Play, record, loop, metronome, automation
+- **Tracks/Mixer** (0x20-0x2F): Volume, pan, mute, solo, sends, groove
+- **Clips/Scenes** (0x10-0x1F): States, names, colors, loop points, quantization
+- **Devices/Plugins** (0x30-0x3F): Parameters, racks, chains, macros
+- **Note/Scale/Sequencer** (0x50-0x5F): Note on/off, scale, octave, step sequencer
+- **System/Navigation** (0x60-0x6F): Handshake, view switching, selection, session ring
+- **Song/Clip Actions** (0x70-0x7F): Create/duplicate tracks/scenes/clips, capture MIDI
+
+## 📊 Statistics
+
+- **~6,000** total lines of code
+- **128+** MIDI commands implemented
+- **12** specialized manager modules
+- **300+** API methods covered
+- **32-pad** drum grid and step sequencer support
 
 ## 🔧 Development
 

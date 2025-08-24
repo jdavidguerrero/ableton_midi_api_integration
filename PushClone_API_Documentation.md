@@ -18,8 +18,13 @@ This PushClone implementation provides comprehensive coverage of Ableton Live's 
 6. **TransportManager.py** - Transport control
 7. **BrowserManager.py** - Navigation, selection
 8. **AutomationManager.py** - Automation, quantization
-9. **MIDIUtils.py** - MIDI encoding/decoding
-10. **consts.py** - Protocol constants
+9. **GroovePoolManager.py** - Groove pool management
+10. **NoteViewManager.py** - Note view with drum and melodic modes
+11. **StepSequencerManager.py** - Step sequencer
+12. **SessionRing.py** - Session ring navigation
+13. **MessageCoalescer.py** - Performance-optimized message batching
+14. **MIDIUtils.py** - MIDI encoding/decoding
+15. **consts.py** - Protocol constants
 
 ---
 
@@ -536,6 +541,153 @@ def get_automation_recording_state(self) # Current automation recording state
 
 ---
 
+## 🎵 GroovePoolManager API
+
+### Listeners Implemented
+Based on [Live Object Model - GroovePool](https://docs.cycling74.com/legacy/max8/vignettes/live_object_model)
+
+- **Grooves** - `song.groove_pool.grooves` changes
+
+### Event Handlers
+```python
+def _on_grooves_changed(self)  # Groove templates changed
+```
+
+### Send Methods (Live → Hardware)
+```python
+def _send_groove_templates_list(self)  # CMD_GROOVE_POOL
+def _send_groove_amount(self, track_idx, groove_amount)  # Custom command
+def _send_selected_groove_template(self, track_idx, groove_idx)  # Custom command
+```
+
+### Action Methods (Hardware → Live)
+```python
+def set_track_groove_amount(self, track_idx, groove_amount)  # Set groove amount for track
+def set_track_groove_template(self, track_idx, groove_idx)  # Set groove template for track
+def clear_track_groove(self, track_idx)  # Clear groove from track
+```
+
+### Utility Methods
+```python
+def get_groove_pool_info(self)  # Get complete groove pool information
+def get_track_groove_info(self, track_idx)  # Get groove information for track
+def send_complete_state(self)  # Send all groove pool state to hardware
+```
+
+---
+
+## 🎹 NoteViewManager API
+
+### Note View Modes
+- **Drum Mode**: 4x4 drum pads with samples
+- **Melodic Mode**: Scale-based note layout
+
+### Listeners Implemented
+- **Selected Track** - `song.view.selected_track` changes (for auto mode detection)
+- **Selected Device** - `song.view.selected_device` changes (for drum rack detection)
+
+### Event Handlers
+```python
+def _on_selected_track_changed(self)  # Handle track selection changes
+def _on_selected_device_changed(self)  # Handle device selection changes
+```
+
+### Send Methods (Live → Hardware)
+```python
+def _send_complete_note_grid(self)  # Send complete note grid based on current mode
+def _send_drum_grid(self)  # Send drum mode grid
+def _send_melodic_grid(self)  # Send melodic mode grid based on scale
+```
+
+### Action Methods (Hardware → Live)
+```python
+def set_mode(self, mode)  # Manually set note view mode
+def toggle_auto_detect(self)  # Toggle auto-detection of note view mode
+```
+
+---
+
+## 🎹 StepSequencerManager API
+
+### Listeners Implemented
+- **Detail Clip** - `song.view.detail_clip` changes
+- **Song Time** - `song.current_song_time` changes
+
+### Event Handlers
+```python
+def _on_detail_clip_changed(self)  # Handle detail clip changes
+def _on_song_time_changed(self)  # Handle song time changes
+```
+
+### Send Methods (Live → Hardware)
+```python
+def send_grid_state(self)  # Send step sequencer grid state
+```
+
+### Action Methods (Hardware → Live)
+```python
+def handle_step_sequencer_command(self, command, payload)  # Handle incoming step sequencer commands
+```
+
+---
+
+## 🎯 SessionRing API
+
+### Listeners Implemented
+- **Selected Track** - `song.view.selected_track` changes
+- **Selected Scene** - `song.view.selected_scene` changes
+- **Tracks** - `song.tracks` list changes
+- **Scenes** - `song.scenes` list changes
+
+### Event Handlers
+```python
+def _on_selected_track_changed(self)  # Handle track selection changes
+def _on_selected_scene_changed(self)  # Handle scene selection changes
+def _on_tracks_changed(self)  # Handle tracks added/removed
+def _on_scenes_changed(self)  # Handle scenes added/removed
+```
+
+### Send Methods (Live → Hardware)
+```python
+def _send_ring_position(self)  # Send current ring position to hardware
+def _send_ring_clips(self)  # Send all clips in current ring to hardware
+def _send_track_selection(self, track_index)  # Send track selection change to hardware
+def _send_scene_selection(self, scene_index)  # Send scene selection change to hardware
+```
+
+### Action Methods (Hardware → Live)
+```python
+def navigate_ring(self, direction)  # Navigate ring in specified direction
+```
+
+### Utility Methods
+```python
+def get_ring_info(self)  # Get current ring information
+def get_absolute_position(self, ring_track, ring_scene)  # Convert ring-relative position to absolute track/scene indices
+def get_ring_position(self, absolute_track, absolute_scene)  # Convert absolute position to ring-relative position
+def is_in_ring(self, absolute_track, absolute_scene)  # Check if absolute position is within current ring
+def send_complete_state(self)  # Send complete ring state to hardware
+```
+
+---
+
+## ⚡ MessageCoalescer API
+
+### Performance Optimization
+- **Message Batching**: Groups LED updates in time windows (2-4ms)
+- **Rate Limiting**: Limits refresh rate to 60fps max
+- **Prevents Message Flooding**: Avoids sending duplicate messages
+
+### Public Methods
+```python
+def queue_message(self, command, payload, priority_override=None)  # Queue a message for coalesced sending
+def force_flush(self)  # Force immediate flush of all pending messages
+def set_frame_rate(self, fps)  # Set target frame rate
+def get_performance_info(self)  # Get performance information
+```
+
+---
+
 ## 🎛️ PushClone Orchestrator API
 
 ### Manager Integration
@@ -549,16 +701,21 @@ self._managers = {
     'device': DeviceManager(self),
     'transport': TransportManager(self),
     'browser': BrowserManager(self),
-    'automation': AutomationManager(self)
+    'automation': AutomationManager(self),
+    'groove_pool': GroovePoolManager(self),
+    'note_view': NoteViewManager(self),
+    'step_sequencer': StepSequencerManager(self)
 }
+self._session_ring = SessionRing(self)
+self._message_coalescer = MessageCoalescer(self)
 ```
 
 ### MIDI Communication
 
 #### SysEx Protocol
 - **Header**: `F0 7F 00 7F` (Universal Non-Commercial)
-- **Structure**: `[Header][Command][Length][Payload][Checksum][F7]`
-- **Checksum**: XOR of command and payload bytes
+- **Structure**: `[Header][Command][Sequence][Length][Payload][Checksum][F7]`
+- **Checksum**: XOR of command, sequence, and payload bytes
 
 #### Connection Handshake
 1. Hardware sends: `F0 7F 00 7F 60 02 50 43 [checksum] F7`
@@ -567,20 +724,19 @@ self._managers = {
 
 ### Command Routing
 Commands are routed by range:
-- **0x10-0x1F**: Clip view commands
-- **0x20-0x2F**: Mixer view commands  
-- **0x30-0x3F**: Device view commands
-- **0x40-0x4F**: Note view commands
-- **0x50-0x5F**: Transport commands
-- **0x60-0x6F**: Connection commands
-- **0xB0-0xBF**: Browser/Navigation commands
-- **0xC0-0xCF**: Automation commands
+- **0x10-0x1F**: Clip/Scene commands
+- **0x20-0x2F**: Mixer/Track commands
+- **0x30-0x3F**: Device/Plugin commands
+- **0x40-0x4F**: Transport/Automation commands
+- **0x50-0x5F**: Note/Scale/Sequencer commands
+- **0x60-0x6F**: System/Navigation commands
+- **0x70-0x7F**: Song/Clip actions
 
 ### Main Methods
 ```python
 def handle_sysex(self, midi_bytes)          # Handle incoming SysEx
 def _route_command(self, command, payload)   # Route to appropriate manager
-def _send_sysex_command(self, command, payload) # Send SysEx to hardware
+def _send_sysex_command(self, command, payload, silent=False, priority=None) # Send SysEx to hardware
 def _send_complete_state(self)              # Send complete state from all managers
 def get_manager(self, manager_name)         # Get specific manager instance
 def get_connection_state(self)              # Current connection state
@@ -614,6 +770,12 @@ def encode_octave_info(octave)                               # Octave informatio
 def encode_track_instrument(track, has_instrument, is_drum_rack, name)  # Track instrument
 def encode_view_switch(view_id)                              # View switch
 def encode_scene_state(scene, is_triggered)                  # Scene state
+def encode_neotrellis_grid(track, device, grid_data)         # NeoTrellis 4x8 drum grid
+def encode_neotrellis_clip_grid(grid_data)                   # NeoTrellis 8x4 clip grid colors
+def encode_step_sequencer_state(grid_data)                   # Step Sequencer grid state
+def encode_step_sequencer_note(track, note, velocity)        # Step sequencer note on/off
+def encode_step_sequencer_resolution(resolution)             # Step sequencer resolution change
+def encode_step_sequencer_page(page)                         # Step sequencer page change
 ```
 
 ### ColorUtils Class
@@ -632,6 +794,7 @@ def get_mixer_led_color(track_color, is_mute, is_solo, is_arm)  # Mixer LED colo
 def get_device_led_color(is_enabled, is_selected)              # Device LED color
 def get_note_pad_color(note, current_scale, root_note, is_playing) # Note pad color
 def get_transport_led_color(is_playing, is_recording, is_loop)  # Transport LED colors
+def get_drum_pad_color(pad_state)                              # Drum pad LED color
 ```
 
 ---
@@ -640,75 +803,138 @@ def get_transport_led_color(is_playing, is_recording, is_loop)  # Transport LED 
 
 ### SysEx Commands
 
-#### Connection Commands (0x60-0x6F)
-```python
-CMD_HANDSHAKE = 0x60            # Initial handshake
-CMD_HANDSHAKE_REPLY = 0x61      # Handshake response
-CMD_VIEW_STATE = 0x62           # Complete view state dump
-```
+#### VIEW SWITCHING COMMANDS
+- `CMD_SWITCH_VIEW = 0x01`
 
-#### Transport Commands (0x50-0x5F)
-```python
-CMD_TRANSPORT = 0x50            # Transport state
-CMD_TRANSPORT_PLAY = 0x51       # Play/stop toggle
-CMD_TRANSPORT_RECORD = 0x52     # Record toggle
-CMD_TRANSPORT_LOOP = 0x53       # Loop toggle
-CMD_TRANSPORT_TEMPO = 0x54      # Tempo change
-CMD_TRANSPORT_SIGNATURE = 0x55  # Time signature
-CMD_TRANSPORT_METRONOME = 0x56  # Metronome state
-CMD_TRANSPORT_OVERDUB = 0x57    # Overdub state
-CMD_TRANSPORT_PUNCH = 0x58      # Punch in/out
-CMD_TRANSPORT_QUANTIZE = 0x59   # MIDI quantization
-CMD_TRANSPORT_POSITION = 0x5A   # Song position
-```
+#### MISC COMMANDS
+- `CMD_NEOTRELLIS_CLIP_GRID = 0x02`
+- `CMD_TRANSPORT_QUANTIZE = 0x03`
+- `CMD_DRUM_RACK_STATE = 0x04`
+- `CMD_NEOTRELLIS_GRID = 0x05`
 
-#### Clip View Commands (0x10-0x1F)
-```python
-CMD_CLIP_STATE = 0x10           # Clip state change
-CMD_CLIP_TRIGGER = 0x11         # Trigger clip
-CMD_SCENE_FIRE = 0x12           # Fire scene
-CMD_CLIP_STOP = 0x13            # Stop clip
-CMD_SCENE_STATE = 0x14          # Scene state info
-CMD_TRACK_COLOR = 0x15          # Track color info
-```
+#### CLIP/SCENE COMMANDS (0x10-0x1F)
+- `CMD_CLIP_STATE = 0x10`
+- `CMD_CLIP_TRIGGER = 0x11`
+- `CMD_SCENE_FIRE = 0x12`
+- `CMD_CLIP_STOP = 0x13`
+- `CMD_CLIP_NAME = 0x14`
+- `CMD_CLIP_LOOP = 0x15`
+- `CMD_CLIP_MUTED = 0x16`
+- `CMD_CLIP_WARP = 0x17`
+- `CMD_CLIP_START = 0x18`
+- `CMD_CLIP_END = 0x19`
+- `CMD_SCENE_STATE = 0x1A`
+- `CMD_SCENE_NAME = 0x1B`
+- `CMD_SCENE_COLOR = 0x1C`
+- `CMD_SCENE_IS_TRIGGERED = 0x1D`
+- `CMD_MIDI_CLIP_QUANTIZE = 0x1E`
+- `CMD_QUANTIZE_CLIP = 0x1F`
 
-#### Mixer View Commands (0x20-0x2F)
-```python
-CMD_MIXER_STATE = 0x20          # Complete mixer channel state
-CMD_MIXER_VOLUME = 0x21         # Volume change
-CMD_MIXER_PAN = 0x22            # Pan change
-CMD_MIXER_MUTE = 0x23           # Mute toggle
-CMD_MIXER_SOLO = 0x24           # Solo toggle
-CMD_MIXER_ARM = 0x25            # Arm toggle
-CMD_MIXER_SEND = 0x26           # Send level change
-CMD_TRACK_NAME = 0x27           # Track name change
-```
+#### MIXER/TRACK COMMANDS (0x20-0x2F)
+- `CMD_MIXER_STATE = 0x20`
+- `CMD_MIXER_VOLUME = 0x21`
+- `CMD_MIXER_PAN = 0x22`
+- `CMD_MIXER_MUTE = 0x23`
+- `CMD_MIXER_SOLO = 0x24`
+- `CMD_MIXER_ARM = 0x25`
+- `CMD_MIXER_SEND = 0x26`
+- `CMD_TRACK_NAME = 0x27`
+- `CMD_TRACK_COLOR = 0x28`
+- `CMD_TRACK_PLAYING_SLOT = 0x29`
+- `CMD_TRACK_FIRED_SLOT = 0x2A`
+- `CMD_TRACK_FOLD_STATE = 0x2B`
+- `CMD_GROOVE_AMOUNT = 0x2C`
+- `CMD_GROOVE_TEMPLATE = 0x2D`
+- `CMD_GROOVE_POOL = 0x2E`
 
-#### Device View Commands (0x30-0x3F)
-```python
-CMD_DEVICE_LIST = 0x30          # Device list in track
-CMD_DEVICE_SELECT = 0x31        # Select device
-CMD_DEVICE_PARAMS = 0x32        # Device parameters
-CMD_PARAM_CHANGE = 0x33         # Parameter value change
-CMD_PARAM_VALUE = 0x34          # Individual parameter value
-CMD_DEVICE_ENABLE = 0x35        # Device enable/disable
-CMD_DEVICE_PREV_NEXT = 0x36     # Navigate devices
-CMD_PARAM_PAGE = 0x37           # Parameter page change
-```
+#### DEVICE/PLUGIN COMMANDS (0x30-0x3F)
+- `CMD_DEVICE_LIST = 0x30`
+- `CMD_DEVICE_SELECT = 0x31`
+- `CMD_DEVICE_PARAMS = 0x32`
+- `CMD_PARAM_CHANGE = 0x33`
+- `CMD_PARAM_VALUE = 0x34`
+- `CMD_DEVICE_ENABLE = 0x35`
+- `CMD_DEVICE_PREV_NEXT = 0x36`
+- `CMD_PARAM_PAGE = 0x37`
+- `CMD_CHAIN_SELECT = 0x38`
+- `CMD_CHAIN_MUTE = 0x39`
+- `CMD_CHAIN_SOLO = 0x3A`
+- `CMD_CHAIN_VOLUME = 0x3B`
+- `CMD_CHAIN_PAN = 0x3C`
+- `CMD_CHAIN_SEND = 0x3D`
+- `CMD_CHAIN_CROSSFADE = 0x3E`
+- `CMD_RACK_MACRO = 0x3F`
 
-#### Note View Commands (0x40-0x4F)
-```python
-CMD_NOTE_ON = 0x40              # MIDI note on
-CMD_NOTE_OFF = 0x41             # MIDI note off
-CMD_SCALE_CHANGE = 0x42         # Scale change
-CMD_SCALE_INFO = 0x43           # Scale info
-CMD_OCTAVE_CHANGE = 0x44        # Octave change
-CMD_OCTAVE_INFO = 0x45          # Octave info
-CMD_TRACK_INSTRUMENT = 0x46     # Track instrument info
-CMD_DRUM_PAD_MAP = 0x47         # Drum pad mapping
-CMD_DRUM_RACK_STATE = 0x48      # Drum rack state
-CMD_DRUM_PAD_STATE = 0x49       # Drum pad state
-```
+#### TRANSPORT/AUTOMATION COMMANDS (0x40-0x4F)
+- `CMD_TRANSPORT_PLAY = 0x40`
+- `CMD_TRANSPORT_RECORD = 0x41`
+- `CMD_TRANSPORT_LOOP = 0x42`
+- `CMD_TRANSPORT_TEMPO = 0x43`
+- `CMD_TRANSPORT_SIGNATURE = 0x44`
+- `CMD_TRANSPORT_POSITION = 0x45`
+- `CMD_TRANSPORT_METRONOME = 0x46`
+- `CMD_TRANSPORT_OVERDUB = 0x47`
+- `CMD_TRANSPORT_PUNCH = 0x48`
+- `CMD_RECORD_QUANTIZATION = 0x49`
+- `CMD_SESSION_RECORD = 0x4A`
+- `CMD_AUTOMATION_RECORD = 0x4B`
+- `CMD_RE_ENABLE_AUTOMATION = 0x4C`
+- `CMD_BACK_TO_ARRANGER = 0x4D`
+- `CMD_UNDO = 0x4E`
+- `CMD_REDO = 0x4F`
+
+#### NOTE/SCALE/SEQUENCER COMMANDS (0x50-0x5F)
+- `CMD_NOTE_ON = 0x50`
+- `CMD_NOTE_OFF = 0x51`
+- `CMD_SCALE_CHANGE = 0x52`
+- `CMD_SCALE_INFO = 0x53`
+- `CMD_OCTAVE_CHANGE = 0x54`
+- `CMD_OCTAVE_INFO = 0x55`
+- `CMD_STEP_SEQUENCER_STATE = 0x56`
+- `CMD_STEP_SEQUENCER_NOTE = 0x57`
+- `CMD_STEP_SEQUENCER_RESOLUTION = 0x58`
+- `CMD_STEP_SEQUENCER_PAGE = 0x59`
+- `CMD_STEP_SEQUENCER_HOLD = 0x5A`
+- `CMD_STEP_EDIT_PARAMS = 0x5B`
+- `CMD_STEP_SEQUENCER_INFO = 0x5C`
+- `CMD_STEP_CLEAR_ALL = 0x5D`
+- `CMD_STEP_COPY_PAGE = 0x5E`
+
+#### SYSTEM/NAVIGATION COMMANDS (0x60-0x6F)
+- `CMD_HANDSHAKE = 0x60`
+- `CMD_HANDSHAKE_REPLY = 0x61`
+- `CMD_VIEW_STATE = 0x62`
+- `CMD_PING_TEST = 0x63`
+- `CMD_SELECTED_TRACK = 0x64`
+- `CMD_SELECTED_SCENE = 0x65`
+- `CMD_DETAIL_CLIP = 0x66`
+- `CMD_BROWSER_MODE = 0x67`
+- `CMD_RING_NAVIGATE = 0x68`
+- `CMD_RING_SELECT = 0x69`
+- `CMD_RING_POSITION = 0x6A`
+- `CMD_TRACK_SELECT = 0x6B`
+- `CMD_SCENE_SELECT = 0x6C`
+- `CMD_SESSION_MODE = 0x6D`
+- `CMD_SESSION_OVERVIEW = 0x6E`
+- `CMD_SESSION_OVERVIEW_GRID = 0x6F`
+
+#### SONG/CLIP ACTIONS (0x70-0x7F)
+- `CMD_CREATE_AUDIO_TRACK = 0x70`
+- `CMD_CREATE_MIDI_TRACK = 0x71`
+- `CMD_CREATE_RETURN_TRACK = 0x72`
+- `CMD_CREATE_SCENE = 0x73`
+- `CMD_DUPLICATE_TRACK = 0x74`
+- `CMD_DUPLICATE_CLIP = 0x75`
+- `CMD_CLIP_DUPLICATE = 0x76`
+- `CMD_CLIP_DELETE = 0x77`
+- `CMD_CLIP_COPY = 0x78`
+- `CMD_CLIP_PASTE = 0x79`
+- `CMD_CLIP_DUPLICATE_RESULT = 0x7A`
+- `CMD_CLIP_DELETE_RESULT = 0x7B`
+- `CMD_CLIP_COPY_RESULT = 0x7C`
+- `CMD_CLIP_PASTE_RESULT = 0x7D`
+- `CMD_CAPTURE_MIDI = 0x7E`
+- `CMD_QUANTIZE_NOTES = 0x7F`
 
 ### Color Definitions
 ```python
