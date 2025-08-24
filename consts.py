@@ -18,6 +18,8 @@ CMD_SWITCH_VIEW = 0x01          # Switch active view
 # ========================================
 CMD_NEOTRELLIS_CLIP_GRID = 0x02 # NeoTrellis 8x4 clip grid colors (Live → Teensy)
 CMD_TRANSPORT_QUANTIZE = 0x03   # MIDI quantization (bidirectional)
+CMD_DRUM_RACK_STATE = 0x04      # Drum rack state (Live → Teensy)
+CMD_NEOTRELLIS_GRID = 0x05      # NeoTrellis 4x8 grid state (Live → Teensy)
 
 # ========================================
 # CLIP/SCENE COMMANDS (0x10-0x1F)
