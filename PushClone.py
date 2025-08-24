@@ -16,6 +16,8 @@ from .BrowserManager import BrowserManager
 from .AutomationManager import AutomationManager
 from .GroovePoolManager import GroovePoolManager
 from .StepSequencerManager import StepSequencerManager
+from .SessionRing import SessionRing
+from .MessageCoalescer import MessageCoalescer
 
 class PushClone(ControlSurface):
     """
@@ -43,6 +45,8 @@ class PushClone(ControlSurface):
         
         # Initialize all managers
         self._managers = {}
+        self._session_ring = None
+        self._message_coalescer = None
         self._initialize_managers()
         
         # Current selections and state
@@ -52,6 +56,17 @@ class PushClone(ControlSurface):
         self._current_scale = "Minor"
         self._current_root = 0  # C = 0
         self._current_octave = 4
+        
+        # Session navigation modes
+        self._session_mode = "session_screen"  # "session_screen" or "session_pad"
+        self._overview_mode = False  # Session overview on/off
+        self._clip_actions = {  # Available clip actions
+            'duplicate': True,
+            'delete': True,
+            'copy': True,
+            'paste': False  # Will be True when clipboard has content
+        }
+        self._clipboard = None  # For clip copy/paste
         
         with self.component_guard():
             self.log_message("🚀 PushClone Orchestrator Loading...")
@@ -91,6 +106,12 @@ class PushClone(ControlSurface):
             self._managers['groove_pool'] = GroovePoolManager(self)
             self._managers['step_sequencer'] = StepSequencerManager(self)
             
+            # Initialize Session Ring
+            self._session_ring = SessionRing(self)
+            
+            # Initialize Message Coalescer for performance
+            self._message_coalescer = MessageCoalescer(self)
+            
             self.log_message(f"✅ Initialized {len(self._managers)} managers")
             
         except Exception as e:
@@ -110,6 +131,7 @@ class PushClone(ControlSurface):
             self._managers['browser'].setup_listeners()
             self._managers['automation'].setup_listeners()
             self._managers['step_sequencer'].setup_listeners()
+            self._session_ring.setup_listeners()
             
             self.log_message("✅ All managers setup complete")
             
@@ -129,6 +151,12 @@ class PushClone(ControlSurface):
                     self.log_message(f"❌ Error cleaning {manager_name} manager: {e}")
             
             self._managers['step_sequencer'].cleanup_listeners()
+            
+            # Cleanup session ring and message coalescer
+            if self._session_ring:
+                self._session_ring.cleanup_listeners()
+            if self._message_coalescer:
+                self._message_coalescer.cleanup()
             
             self.log_message("✅ All managers cleaned up")
             
@@ -155,7 +183,7 @@ class PushClone(ControlSurface):
         except Exception as e:
             self.log_message(f"❌ Error sending handshake: {e}")
     
-    def _send_sysex_command(self, command, payload, silent=False):
+    def _send_sysex_command(self, command, payload, silent=False, priority=None):
         """Send SysEx command to hardware"""
         try:
             message = SysExEncoder.create_sysex(command, payload)
@@ -173,10 +201,10 @@ class PushClone(ControlSurface):
                     return
                 
                 # Check payload length vs declared length
-                if len(message) >= 8:  # Header(4) + Command(1) + Length(1) + Checksum(1) + End(1) = 8 minimum
-                    declared_length = message[5]  # Length byte position
-                    # Message structure: Header(4) + Command(1) + Length(1) + Payload(N) + Checksum(1) + End(1) = 8 + N
-                    actual_payload_length = len(message) - 8  # Total - overhead (8 bytes)
+                if len(message) >= 9:  # Header(4) + Command(1) + Seq(1) + Length(1) + Checksum(1) + End(1) = 9 minimum
+                    declared_length = message[6]  # Length byte position (now at index 6)
+                    # Message structure: Header(4) + Command(1) + Seq(1) + Length(1) + Payload(N) + Checksum(1) + End(1) = 9 + N
+                    actual_payload_length = len(message) - 9  # Total - overhead (9 bytes)
                     if declared_length != actual_payload_length:
                         if not silent:
                             self.log_message(f"⚠️ SysEx length mismatch for 0x{command:02X}: declared={declared_length}, actual={actual_payload_length}, message_len={len(message)}")
@@ -191,7 +219,14 @@ class PushClone(ControlSurface):
                     return
                 
                 try:
-                    self._send_midi(tuple(message))
+                    # Use message coalescer for performance optimization
+                    if self._message_coalescer and not priority:
+                        # Queue message for coalescing (except high priority)
+                        self._message_coalescer.queue_message(command, payload)
+                    else:
+                        # Send immediately for high priority or when coalescer unavailable
+                        self._send_midi(tuple(message))
+                    
                     # Log successful sends for debugging
                     if not silent and DEBUG_ENABLED:
                         SysExEncoder.log_sysex(message, "OUT")
@@ -252,17 +287,18 @@ class PushClone(ControlSurface):
                 return
             
             command = midi_bytes[4]
-            payload_length = midi_bytes[5]
+            sequence = midi_bytes[5]
+            payload_length = midi_bytes[6]
             
-            if len(midi_bytes) < 6 + payload_length + 2:  # +2 for checksum and end byte
-                self.log_message(f"⚠️ SysEx payload incomplete: expected {payload_length}, got {len(midi_bytes) - 8}")
+            if len(midi_bytes) < 7 + payload_length + 2:  # +2 for checksum and end byte
+                self.log_message(f"⚠️ SysEx payload incomplete: expected {payload_length}, got {len(midi_bytes) - 9}")
                 return
             
-            payload = list(midi_bytes[6:6+payload_length])
-            received_checksum = midi_bytes[6+payload_length]
+            payload = list(midi_bytes[7:7+payload_length])
+            received_checksum = midi_bytes[7+payload_length]
             
-            # Verify checksum
-            calculated_checksum = command
+            # Verify enhanced checksum
+            calculated_checksum = command ^ sequence
             for byte in payload:
                 calculated_checksum ^= byte
             calculated_checksum &= 0x7F
@@ -270,6 +306,10 @@ class PushClone(ControlSurface):
             if received_checksum != calculated_checksum:
                 self.log_message(f"⚠️ SysEx checksum error: got {received_checksum:02X}, expected {calculated_checksum:02X}")
                 return
+            
+            # Log sequence number for debugging
+            if DEBUG_ENABLED:
+                self.log_message(f"📨 SysEx CMD:{command:02X} SEQ:{sequence} LEN:{payload_length}")
             
             # Route command to appropriate manager
             self._route_command(command, payload)
@@ -308,7 +348,11 @@ class PushClone(ControlSurface):
             
             # Browser/Navigation commands (0xB0-0xBF)
             elif 0xB0 <= command <= 0xBF:
-                self._managers['browser'].handle_navigation_command(command, payload)
+                # Check if it's a ring navigation command
+                if command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION] and self._session_ring:
+                    self._session_ring.handle_navigation_command(command, payload)
+                else:
+                    self._managers['browser'].handle_navigation_command(command, payload)
             
             # Automation commands (0xC0-0xCF)
             elif 0xC0 <= command <= 0xCF:
@@ -344,6 +388,7 @@ class PushClone(ControlSurface):
         """Handle handshake from hardware"""
         try:
             self.log_message("🤝 Handshake received from hardware")
+            # payload contains hardware identification info
             
             # Send handshake reply
             reply_payload = [0x4C, 0x56]  # "LV" for Live
@@ -363,6 +408,7 @@ class PushClone(ControlSurface):
         """Handle handshake reply from hardware"""
         try:
             self.log_message("🤝 Handshake reply received")
+            # payload contains hardware confirmation
             self._is_connected = True
             
         except Exception as e:
@@ -382,6 +428,8 @@ class PushClone(ControlSurface):
             self._managers['browser'].send_complete_state()
             self._managers['automation'].send_complete_state()
             self._managers['step_sequencer'].send_complete_state()
+            if self._session_ring:
+                self._session_ring.send_complete_state()
             
             self.log_message("✅ Complete state sent from all managers")
             
@@ -771,6 +819,7 @@ class PushClone(ControlSurface):
         """Check if Live version supports a feature"""
         try:
             current_version = self._get_live_version()
+            # feature_name parameter for future feature-specific checks
             return current_version >= min_version
         except Exception:
             return False  # Conservative fallback
@@ -938,11 +987,291 @@ class PushClone(ControlSurface):
             return False
     
     # ========================================
+    # SESSION NAVIGATION AND MODES
+    # ========================================
+    
+    def switch_session_mode(self, mode):
+        """Switch between session screen and session pad mode"""
+        try:
+            if mode in ["session_screen", "session_pad"]:
+                old_mode = self._session_mode
+                self._session_mode = mode
+                
+                self.log_message(f"🔄 Session mode: {old_mode} → {mode}")
+                
+                # Send mode change to hardware
+                mode_id = 0 if mode == "session_screen" else 1
+                self._send_sysex_command(CMD_SESSION_MODE, [mode_id])
+                
+                # Update display based on mode
+                if mode == "session_screen":
+                    # Show full session view with ring
+                    if self._session_ring:
+                        self._session_ring.send_complete_state()
+                else:
+                    # Show pad-focused session view
+                    self._send_session_overview()
+                
+                return True
+            return False
+            
+        except Exception as e:
+            self.log_message(f"❌ Error switching session mode: {e}")
+            return False
+    
+    def toggle_session_overview(self):
+        """Toggle session overview mode"""
+        try:
+            self._overview_mode = not self._overview_mode
+            
+            self.log_message(f"🔍 Session overview: {'ON' if self._overview_mode else 'OFF'}")
+            
+            # Send overview state to hardware
+            self._send_sysex_command(CMD_SESSION_OVERVIEW, [1 if self._overview_mode else 0])
+            
+            if self._overview_mode:
+                self._send_session_overview()
+            else:
+                # Return to normal session view
+                if self._session_ring:
+                    self._session_ring.send_complete_state()
+            
+        except Exception as e:
+            self.log_message(f"❌ Error toggling overview: {e}")
+    
+    def _send_session_overview(self):
+        """Send session overview grid data"""
+        try:
+            if not self._is_connected:
+                return
+            
+            # Create overview grid (8x8 representing larger session area)
+            overview_grid = []
+            tracks = self.song().tracks
+            scenes = self.song().scenes
+            
+            for scene_idx in range(8):
+                for track_idx in range(8):
+                    if (track_idx < len(tracks) and scene_idx < len(scenes)):
+                        clip_slot = tracks[track_idx].clip_slots[scene_idx]
+                        
+                        # Overview colors: simplified clip states
+                        if clip_slot.has_clip:
+                            if clip_slot.is_playing:
+                                color = 3  # Playing - bright
+                            elif clip_slot.is_triggered:
+                                color = 2  # Queued - medium
+                            else:
+                                color = 1  # Has clip - dim
+                        else:
+                            color = 0  # Empty
+                    else:
+                        color = 0  # Outside session bounds
+                    
+                    overview_grid.append(color)
+            
+            # Send overview grid
+            self._send_sysex_command(CMD_SESSION_OVERVIEW_GRID, overview_grid)
+            
+        except Exception as e:
+            self.log_message(f"❌ Error sending session overview: {e}")
+    
+    def handle_session_navigation_command(self, command, payload):
+        """Handle session navigation commands"""
+        try:
+            if command == CMD_SESSION_MODE and len(payload) >= 1:
+                mode = "session_screen" if payload[0] == 0 else "session_pad"
+                self.switch_session_mode(mode)
+                
+            elif command == CMD_SESSION_OVERVIEW:
+                self.toggle_session_overview()
+                
+            elif command == CMD_CLIP_DUPLICATE and len(payload) >= 4:
+                src_track, src_scene, dst_track, dst_scene = payload[0], payload[1], payload[2], payload[3]
+                self.duplicate_clip(src_track, src_scene, dst_track, dst_scene)
+                
+            elif command == CMD_CLIP_DELETE and len(payload) >= 2:
+                track_idx, scene_idx = payload[0], payload[1]
+                self.delete_clip(track_idx, scene_idx)
+                
+            elif command == CMD_CLIP_COPY and len(payload) >= 2:
+                track_idx, scene_idx = payload[0], payload[1]
+                self.copy_clip(track_idx, scene_idx)
+                
+            elif command == CMD_CLIP_PASTE and len(payload) >= 2:
+                track_idx, scene_idx = payload[0], payload[1]
+                self.paste_clip(track_idx, scene_idx)
+                
+            else:
+                self.log_message(f"❓ Unknown session navigation command: 0x{command:02X}")
+                
+        except Exception as e:
+            self.log_message(f"❌ Error handling session navigation command 0x{command:02X}: {e}")
+    
+    def duplicate_clip(self, source_track, source_scene, target_track, target_scene):
+        """Duplicate clip from source to target position"""
+        try:
+            if self._managers['clip']:
+                success = self._managers['clip'].duplicate_midi_clip_notes(
+                    source_track, source_scene, target_track, target_scene
+                )
+                
+                if success:
+                    self.log_message(
+                        f"📋 Duplicated clip: T{source_track}S{source_scene} → T{target_track}S{target_scene}"
+                    )
+                    # Send confirmation to hardware
+                    self._send_sysex_command(CMD_CLIP_DUPLICATE_RESULT, [1])  # Success
+                else:
+                    self._send_sysex_command(CMD_CLIP_DUPLICATE_RESULT, [0])  # Failed
+                
+                return success
+            return False
+            
+        except Exception as e:
+            self.log_message(f"❌ Error duplicating clip: {e}")
+            self._send_sysex_command(CMD_CLIP_DUPLICATE_RESULT, [0])
+            return False
+    
+    def delete_clip(self, track_idx, scene_idx):
+        """Delete clip at specified position"""
+        try:
+            if (track_idx < len(self.song().tracks) and 
+                scene_idx < len(self.song().scenes)):
+                
+                track = self.song().tracks[track_idx]
+                clip_slot = track.clip_slots[scene_idx]
+                
+                if clip_slot.has_clip:
+                    clip_slot.delete_clip()
+                    self.log_message(f"🗑️ Deleted clip T{track_idx}S{scene_idx}")
+                    
+                    # Send confirmation to hardware
+                    self._send_sysex_command(CMD_CLIP_DELETE_RESULT, [1])
+                    return True
+                else:
+                    self.log_message(f"⚠️ No clip to delete at T{track_idx}S{scene_idx}")
+                    self._send_sysex_command(CMD_CLIP_DELETE_RESULT, [0])
+                    return False
+            
+            return False
+            
+        except Exception as e:
+            self.log_message(f"❌ Error deleting clip T{track_idx}S{scene_idx}: {e}")
+            self._send_sysex_command(CMD_CLIP_DELETE_RESULT, [0])
+            return False
+    
+    def copy_clip(self, track_idx, scene_idx):
+        """Copy clip to clipboard"""
+        try:
+            if (track_idx < len(self.song().tracks) and 
+                scene_idx < len(self.song().scenes)):
+                
+                track = self.song().tracks[track_idx]
+                clip_slot = track.clip_slots[scene_idx]
+                
+                if clip_slot.has_clip:
+                    # Store clip data in clipboard
+                    if self._managers['clip']:
+                        notes = self._managers['clip'].get_midi_clip_notes(track_idx, scene_idx)
+                        if notes:
+                            self._clipboard = {
+                                'type': 'midi_clip',
+                                'notes': notes,
+                                'source_track': track_idx,
+                                'source_scene': scene_idx,
+                                'clip_name': clip_slot.clip.name,
+                                'clip_color': clip_slot.clip.color
+                            }
+                            
+                            self.log_message(f"📋 Copied clip T{track_idx}S{scene_idx} to clipboard")
+                            self._clip_actions['paste'] = True
+                            
+                            # Send confirmation to hardware
+                            self._send_sysex_command(CMD_CLIP_COPY_RESULT, [1])
+                            return True
+                
+                self.log_message(f"⚠️ No clip data to copy at T{track_idx}S{scene_idx}")
+                self._send_sysex_command(CMD_CLIP_COPY_RESULT, [0])
+                return False
+            
+            return False
+            
+        except Exception as e:
+            self.log_message(f"❌ Error copying clip T{track_idx}S{scene_idx}: {e}")
+            self._send_sysex_command(CMD_CLIP_COPY_RESULT, [0])
+            return False
+    
+    def paste_clip(self, target_track, target_scene):
+        """Paste clip from clipboard"""
+        try:
+            if not self._clipboard:
+                self.log_message("⚠️ No clip in clipboard to paste")
+                self._send_sysex_command(CMD_CLIP_PASTE_RESULT, [0])
+                return False
+            
+            if (target_track < len(self.song().tracks) and 
+                target_scene < len(self.song().scenes)):
+                
+                if self._clipboard['type'] == 'midi_clip':
+                    # Create new clip at target position
+                    target_clip_slot = self.song().tracks[target_track].clip_slots[target_scene]
+                    
+                    # Clear existing clip if any
+                    if target_clip_slot.has_clip:
+                        target_clip_slot.delete_clip()
+                    
+                    # Create new clip
+                    target_clip_slot.create_clip(4.0)  # 4 bars
+                    
+                    if target_clip_slot.has_clip and self._managers['clip']:
+                        target_clip = target_clip_slot.clip
+                        
+                        # Copy properties
+                        target_clip.name = self._clipboard['clip_name']
+                        target_clip.color = self._clipboard['clip_color']
+                        
+                        # Add notes
+                        notes = self._clipboard['notes']
+                        if notes:
+                            note_tuples = []
+                            for note in notes:
+                                note_tuples.append((
+                                    note['pitch'],
+                                    note['start_time'],
+                                    note['duration'],
+                                    note['velocity'],
+                                    False  # not muted
+                                ))
+                            
+                            target_clip.set_notes_extended(note_tuples)
+                            
+                            self.log_message(
+                                f"📎 Pasted {len(notes)} notes to T{target_track}S{target_scene}"
+                            )
+                            
+                            # Send confirmation to hardware
+                            self._send_sysex_command(CMD_CLIP_PASTE_RESULT, [1])
+                            return True
+                
+                self._send_sysex_command(CMD_CLIP_PASTE_RESULT, [0])
+                return False
+            
+            return False
+            
+        except Exception as e:
+            self.log_message(f"❌ Error pasting clip to T{target_track}S{target_scene}: {e}")
+            self._send_sysex_command(CMD_CLIP_PASTE_RESULT, [0])
+            return False
+    
+    # ========================================
     # UTILITY METHODS
     # ========================================
     
     def get_manager(self, manager_name):
         """Get specific manager instance"""
+        if manager_name == 'session_ring':
+            return self._session_ring
         return self._managers.get(manager_name)
     
     def get_connection_state(self):
@@ -982,6 +1311,14 @@ class PushClone(ControlSurface):
                         state['automation'] = manager.get_automation_info()
                 except:
                     pass  # Skip if method doesn't exist or fails
+            
+            # Session navigation state
+            state['session_navigation'] = {
+                'session_mode': self._session_mode,
+                'overview_mode': self._overview_mode,
+                'clip_actions': self._clip_actions.copy(),
+                'has_clipboard': self._clipboard is not None
+            }
             
             return state
             

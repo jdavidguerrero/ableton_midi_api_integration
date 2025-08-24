@@ -92,6 +92,16 @@ CMD_DEVICE_CHAIN = 0x4A         # Device chain state (Live → Teensy)
 CMD_NEOTRELLIS_GRID = 0x4B      # NeoTrellis 4x8 grid state (Live → Teensy)
 CMD_DRUM_PAD_COLOR = 0x4C       # Drum pad color/state (Live → Teensy)
 CMD_NEOTRELLIS_CLIP_GRID = 0x4D # NeoTrellis 8x4 clip grid colors (Live → Teensy)
+CMD_NOTE_VIEW_MODE = 0x4E       # Note view mode (drum/melodic) (bidirectional)
+CMD_NOTE_AUTO_DETECT = 0x4F      # Auto-detect note view mode (bidirectional)
+CMD_NOTE_DRUM_GRID = 0x41        # Drum grid colors (Live → Teensy) 
+CMD_NOTE_MELODIC_GRID = 0x42     # Melodic grid colors (Live → Teensy)
+CMD_NOTE_SCALE_CONFIG = 0x43     # Scale configuration (Live → Teensy)
+CMD_NOTE_DRUM_CONFIG = 0x44      # Drum configuration (Live → Teensy)
+CMD_NOTE_DRUM_PAD_INFO = 0x45    # Drum pad info (Live → Teensy)
+CMD_NOTE_OCTAVE = 0x46           # Octave change (bidirectional)
+CMD_NOTE_VELOCITY_LEVEL = 0x47   # Drum velocity level (bidirectional)
+CMD_NOTE_KEY_LAYOUT = 0x48       # Melodic key layout (bidirectional)
 
 # ========================================
 # STEP SEQUENCER COMMANDS (0x80-0x8F)
@@ -100,6 +110,11 @@ CMD_STEP_SEQUENCER_STATE = 0x80      # Sequencer grid state (Live → Teensy)
 CMD_STEP_SEQUENCER_NOTE = 0x81       # Add/remove note (Teensy → Live)
 CMD_STEP_SEQUENCER_RESOLUTION = 0x82 # Change resolution (Teensy → Live)
 CMD_STEP_SEQUENCER_PAGE = 0x83       # Change page (Teensy → Live)
+CMD_STEP_SEQUENCER_HOLD = 0x84       # Hold step for editing (Teensy → Live)
+CMD_STEP_EDIT_PARAMS = 0x85          # Step edit parameters (bidirectional)
+CMD_STEP_SEQUENCER_INFO = 0x86       # Sequencer info (Live → Teensy)
+CMD_STEP_CLEAR_ALL = 0x87            # Clear all notes in page (Teensy → Live)
+CMD_STEP_COPY_PAGE = 0x88            # Copy page (Teensy → Live)
 
 # ========================================
 # PLUGIN DEVICE COMMANDS (0x70-0x7F)
@@ -127,6 +142,30 @@ CMD_TRANSPORT_OVERDUB = 0x58    # Overdub state (bidirectional)
 CMD_TRANSPORT_PUNCH = 0x59      # Punch in/out state (bidirectional)
 CMD_TRANSPORT_QUANTIZE = 0x5A   # MIDI quantization (bidirectional)
 CMD_SESSION_RECORD = 0x5B       # Session record state (bidirectional)
+CMD_METRONOME = 0x5C            # Metronome toggle (bidirectional)
+CMD_RECORD_QUANTIZATION = 0x5D  # Record quantization setting (bidirectional)
+CMD_QUANTIZE_CLIP = 0x5E        # Quantize selected clip (Teensy → Live)
+CMD_BACK_TO_ARRANGER = 0x5F     # Back to arrangement (Teensy → Live)
+
+# ========================================
+# SESSION RING COMMANDS (0xB0-0xBF)
+# ========================================
+CMD_RING_NAVIGATE = 0xB0        # Navigate session ring
+CMD_RING_SELECT = 0xB1          # Select in session ring
+CMD_RING_POSITION = 0xB2        # Ring position update
+CMD_TRACK_SELECT = 0xB3         # Track selection
+CMD_SCENE_SELECT = 0xB4         # Scene selection
+CMD_SESSION_MODE = 0xB5         # Session screen/pad mode
+CMD_SESSION_OVERVIEW = 0xB6     # Session overview toggle
+CMD_SESSION_OVERVIEW_GRID = 0xB7 # Session overview grid data
+CMD_CLIP_DUPLICATE = 0xB8       # Duplicate clip
+CMD_CLIP_DELETE = 0xB9          # Delete clip
+CMD_CLIP_COPY = 0xBA            # Copy clip
+CMD_CLIP_PASTE = 0xBB           # Paste clip
+CMD_CLIP_DUPLICATE_RESULT = 0xBC # Duplicate result
+CMD_CLIP_DELETE_RESULT = 0xBD   # Delete result
+CMD_CLIP_COPY_RESULT = 0xBE     # Copy result
+CMD_CLIP_PASTE_RESULT = 0xBF    # Paste result
 
 # ========================================
 # BROWSER/NAVIGATION COMMANDS (0x60-0x6F) - RELOCATED

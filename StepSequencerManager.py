@@ -16,11 +16,30 @@ class StepSequencerManager:
         self.c_surface = control_surface
         self.song = control_surface.song()
         self._is_active = False
+        
+        # Enhanced step sequencer state
         self._notes = [] # List of notes in the sequence
-        self._resolution = 4 # 1/16 notes by default
+        self._resolution = 16 # 1/16 notes by default (higher resolution)
         self._page = 0 # Current page of the sequencer
         self._clip = None
         self._listeners = []
+        
+        # Hold-to-edit functionality
+        self._held_step = -1  # Currently held step (-1 = none)
+        self._hold_start_time = 0
+        self._hold_threshold = 500  # ms to trigger hold mode
+        
+        # Step editing parameters
+        self._editing_velocity = 100
+        self._editing_length = 0.25  # Quarter note default
+        self._editing_microtiming = 0.0  # No timing offset
+        
+        # Grid dimensions
+        self._steps_per_page = 32  # 4x8 grid
+        self._total_steps = 64     # 4 bars at 1/16 resolution
+        
+        # Playhead chase
+        self._last_playhead_position = -1
 
     def setup_listeners(self):
         if self._is_active:

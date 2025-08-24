@@ -2,7 +2,16 @@
 from .consts import *
 
 class SysExEncoder:
-    """Handles encoding of binary data into MIDI SysEx messages"""
+    """Handles encoding of binary data into MIDI SysEx messages with sequence numbers"""
+    
+    _sequence_number = 0  # Class variable for sequence tracking
+    _max_sequence = 127   # Max sequence number (7-bit)
+    
+    @classmethod
+    def _get_next_sequence(cls):
+        """Get next sequence number for message ordering"""
+        cls._sequence_number = (cls._sequence_number + 1) % cls._max_sequence
+        return cls._sequence_number
     
     # ========================================
     # TUS MÉTODOS EXISTENTES (mantener como están)
@@ -10,13 +19,17 @@ class SysExEncoder:
     
     @staticmethod
     def create_sysex(command, payload):
-        """Create a complete SysEx message with header, command, payload and checksum"""
+        """Create a complete SysEx message with header, command, sequence, payload and checksum"""
         try:
             # Start with SysEx header
             message = list(SYSEX_HEADER)
             
             # Add command byte
             message.append(command)
+            
+            # Add sequence number for message ordering
+            sequence = SysExEncoder._get_next_sequence()
+            message.append(sequence)
             
             # Add payload length
             payload_len = len(payload) if payload else 0
@@ -26,8 +39,8 @@ class SysExEncoder:
             if payload:
                 message.extend(payload)
             
-            # Add simple checksum (XOR of command and payload)
-            checksum = command
+            # Add enhanced checksum (XOR of command, sequence, and payload)
+            checksum = command ^ sequence
             if payload:
                 for byte in payload:
                     checksum ^= byte

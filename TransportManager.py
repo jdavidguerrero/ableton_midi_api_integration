@@ -23,6 +23,11 @@ class TransportManager:
         self._last_beat = -1
         self._last_bar = -1
         
+        # Quantization and metronome state
+        self._metronome_enabled = False
+        self._record_quantization = 4  # 1/4 note default
+        self._clip_quantization = 4   # 1/4 note default
+        
     def setup_listeners(self):
         """Setup transport listeners"""
         if self._is_active:
@@ -95,6 +100,20 @@ class TransportManager:
                 self.song.add_nudge_down_listener(nudge_down_listener)
                 self._listeners.append(('nudge_down', nudge_down_listener))
             
+            # === QUANTIZATION AND METRONOME ===
+            
+            # Metronome listener
+            self._setup_metronome_listener()
+            
+            # Initialize metronome state
+            self._metronome_enabled = self.song.metronome
+            
+            # Initialize quantization settings
+            if hasattr(self.song, 'midi_recording_quantization'):
+                self._record_quantization = self.song.midi_recording_quantization
+            else:
+                self._record_quantization = 4  # Default to 1/4 note
+            
             self._is_active = True
             self.c_surface.log_message(f"✅ Transport listeners setup ({len(self._listeners)} listeners)")
             
@@ -129,6 +148,8 @@ class TransportManager:
                         self.song.remove_nudge_up_listener(listener_func)
                     elif listener_type == 'nudge_down':
                         self.song.remove_nudge_down_listener(listener_func)
+                    elif listener_type == 'metronome':
+                        self.song.remove_metronome_listener(listener_func)
                 except:
                     pass  # Ignore if already removed
             
@@ -543,6 +564,11 @@ class TransportManager:
             # Send complete transport using existing encoder
             self._send_complete_transport_state()
             
+            # Send quantization and metronome states
+            self._send_metronome_state(self.song.metronome)
+            if hasattr(self.song, 'midi_recording_quantization'):
+                self._send_record_quantization_state(self.song.midi_recording_quantization)
+            
             self.c_surface.log_message("✅ Transport state sent")
             
         except Exception as e:
@@ -559,6 +585,18 @@ class TransportManager:
                 self.toggle_loop()
             elif command == CMD_BACK_TO_ARRANGER:
                 self.trigger_back_to_arrangement()
+            elif command == CMD_METRONOME:
+                self.toggle_metronome()
+            elif command == CMD_RECORD_QUANTIZATION:
+                if len(payload) >= 1:
+                    self.set_record_quantization(payload[0])
+                else:
+                    self.cycle_record_quantization()
+            elif command == CMD_QUANTIZE_CLIP:
+                if len(payload) >= 1:
+                    self.quantize_selected_clip(payload[0])
+                else:
+                    self.quantize_selected_clip()
             else:
                 self.c_surface.log_message(f"❓ Unknown transport command: 0x{command:02X}")
                 
@@ -592,3 +630,228 @@ class TransportManager:
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting loop region: {e}")
+    
+    # ========================================
+    # QUANTIZATION AND METRONOME CONTROLS
+    # ========================================
+    
+    def toggle_metronome(self):
+        """Toggle metronome on/off"""
+        try:
+            self.song.metronome = not self.song.metronome
+            self._metronome_enabled = self.song.metronome
+            
+            state = "enabled" if self._metronome_enabled else "disabled"
+            self.c_surface.log_message(f"🎯 Metronome {state}")
+            
+            # Send metronome state to hardware
+            self._send_metronome_state(self._metronome_enabled)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error toggling metronome: {e}")
+    
+    def set_metronome(self, enabled):
+        """Set metronome state directly"""
+        try:
+            self.song.metronome = enabled
+            self._metronome_enabled = enabled
+            
+            state = "enabled" if enabled else "disabled"
+            self.c_surface.log_message(f"🎯 Metronome {state}")
+            
+            self._send_metronome_state(enabled)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting metronome: {e}")
+    
+    def set_record_quantization(self, quantization_value):
+        """Set record quantization value"""
+        try:
+            # Available quantization values in Live:
+            # 0 = None, 1 = 1 Bar, 2 = 1/2, 3 = 1/2T, 4 = 1/4, 
+            # 5 = 1/4T, 6 = 1/8, 7 = 1/8T, 8 = 1/16, 9 = 1/16T, 10 = 1/32
+            
+            quantization_map = {
+                0: "None", 1: "1 Bar", 2: "1/2", 3: "1/2T", 4: "1/4",
+                5: "1/4T", 6: "1/8", 7: "1/8T", 8: "1/16", 9: "1/16T", 10: "1/32"
+            }
+            
+            if 0 <= quantization_value <= 10:
+                if hasattr(self.song, 'midi_recording_quantization'):
+                    self.song.midi_recording_quantization = quantization_value
+                    self._record_quantization = quantization_value
+                    
+                    quantization_name = quantization_map.get(quantization_value, "Unknown")
+                    self.c_surface.log_message(f"🎼 Record quantization: {quantization_name}")
+                    
+                    self._send_record_quantization_state(quantization_value)
+                else:
+                    self.c_surface.log_message("ℹ️ Record quantization not available in this Live version")
+            else:
+                self.c_surface.log_message(f"❌ Invalid quantization value: {quantization_value} (must be 0-10)")
+                
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting record quantization: {e}")
+    
+    def cycle_record_quantization(self):
+        """Cycle through common record quantization values"""
+        try:
+            # Common quantization values: None, 1/4, 1/8, 1/16
+            common_values = [0, 4, 6, 8]
+            current_index = 0
+            
+            if self._record_quantization in common_values:
+                current_index = common_values.index(self._record_quantization)
+            
+            next_index = (current_index + 1) % len(common_values)
+            next_quantization = common_values[next_index]
+            
+            self.set_record_quantization(next_quantization)
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error cycling record quantization: {e}")
+    
+    def quantize_selected_clip(self, quantization_value=None):
+        """Quantize the currently selected clip"""
+        try:
+            # Get the selected clip
+            selected_track = self.song.view.selected_track
+            if not selected_track or not hasattr(selected_track, 'playing_slot_index'):
+                self.c_surface.log_message("❌ No track selected")
+                return
+            
+            # Try to get the playing clip first, then the selected clip
+            clip = None
+            if selected_track.playing_slot_index >= 0:
+                clip_slot = selected_track.clip_slots[selected_track.playing_slot_index]
+                if clip_slot.has_clip:
+                    clip = clip_slot.clip
+            
+            # If no playing clip, try detail clip
+            if not clip:
+                clip = self.song.view.detail_clip
+            
+            if not clip:
+                self.c_surface.log_message("❌ No clip to quantize")
+                return
+            
+            if not clip.is_midi_clip:
+                self.c_surface.log_message("❌ Cannot quantize audio clips")
+                return
+            
+            # Use provided quantization or current setting
+            quant_value = quantization_value if quantization_value is not None else self._clip_quantization
+            
+            # Quantization strength (0.0 = no quantization, 1.0 = full quantization)
+            quantization_strength = 1.0
+            
+            # Live's quantize method (if available)
+            if hasattr(clip, 'quantize'):
+                # Convert quantization value to Live's enum
+                quantize_to = quant_value  # This might need adjustment based on Live's API
+                clip.quantize(quantize_to, quantization_strength)
+                
+                quantization_names = {
+                    0: "None", 4: "1/4", 6: "1/8", 8: "1/16", 10: "1/32"
+                }
+                quant_name = quantization_names.get(quant_value, f"Value {quant_value}")
+                
+                self.c_surface.log_message(f"✨ Quantized clip to {quant_name}")
+                self._send_quantize_feedback(quant_value)
+                
+            else:
+                self.c_surface.log_message("ℹ️ Clip quantization not available in this Live version")
+                
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error quantizing clip: {e}")
+    
+    def set_clip_quantization(self, quantization_value):
+        """Set the default quantization value for clip operations"""
+        try:
+            if 0 <= quantization_value <= 10:
+                self._clip_quantization = quantization_value
+                
+                quantization_names = {
+                    0: "None", 1: "1 Bar", 2: "1/2", 3: "1/2T", 4: "1/4",
+                    5: "1/4T", 6: "1/8", 7: "1/8T", 8: "1/16", 9: "1/16T", 10: "1/32"
+                }
+                
+                quant_name = quantization_names.get(quantization_value, "Unknown")
+                self.c_surface.log_message(f"📏 Clip quantization: {quant_name}")
+                
+            else:
+                self.c_surface.log_message(f"❌ Invalid quantization value: {quantization_value}")
+                
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting clip quantization: {e}")
+    
+    def get_quantization_info(self):
+        """Get current quantization settings"""
+        try:
+            quantization_names = {
+                0: "None", 1: "1 Bar", 2: "1/2", 3: "1/2T", 4: "1/4",
+                5: "1/4T", 6: "1/8", 7: "1/8T", 8: "1/16", 9: "1/16T", 10: "1/32"
+            }
+            
+            current_record_quant = getattr(self.song, 'midi_recording_quantization', self._record_quantization)
+            
+            return {
+                'metronome_enabled': self.song.metronome,
+                'record_quantization_value': current_record_quant,
+                'record_quantization_name': quantization_names.get(current_record_quant, "Unknown"),
+                'clip_quantization_value': self._clip_quantization,
+                'clip_quantization_name': quantization_names.get(self._clip_quantization, "Unknown"),
+                'available_quantizations': quantization_names
+            }
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error getting quantization info: {e}")
+            return {}
+    
+    # ========================================
+    # QUANTIZATION AND METRONOME SEND METHODS
+    # ========================================
+    
+    def _send_metronome_state(self, enabled):
+        """Send metronome state to hardware"""
+        try:
+            payload = [1 if enabled else 0]
+            self.c_surface._send_sysex_command(CMD_METRONOME, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending metronome state: {e}")
+    
+    def _send_record_quantization_state(self, quantization_value):
+        """Send record quantization state to hardware"""
+        try:
+            payload = [quantization_value & 0x7F]  # 7-bit value
+            self.c_surface._send_sysex_command(CMD_RECORD_QUANTIZATION, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending record quantization: {e}")
+    
+    def _send_quantize_feedback(self, quantization_value):
+        """Send quantize operation feedback to hardware"""
+        try:
+            # Send feedback that quantization was applied
+            payload = [quantization_value & 0x7F, 1]  # value + success flag
+            self.c_surface._send_sysex_command(CMD_QUANTIZE_CLIP, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending quantize feedback: {e}")
+    
+    def _setup_metronome_listener(self):
+        """Setup metronome state listener"""
+        try:
+            metronome_listener = lambda: self._on_metronome_changed()
+            self.song.add_metronome_listener(metronome_listener)
+            self._listeners.append(('metronome', metronome_listener))
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error setting up metronome listener: {e}")
+    
+    def _on_metronome_changed(self):
+        """Metronome state changed"""
+        if self.c_surface._is_connected:
+            metronome_enabled = self.song.metronome
+            self._metronome_enabled = metronome_enabled
+            
+            self.c_surface.log_message(f"🎯 Metronome: {metronome_enabled}")
+            self._send_metronome_state(metronome_enabled)

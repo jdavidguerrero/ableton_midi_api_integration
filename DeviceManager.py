@@ -21,13 +21,19 @@ class DeviceManager:
         self._drum_listeners = {}    # (track_idx, device_idx): [drum_listeners]
         self._is_active = False
         
-        # Device view state
+        # Device view state with enhanced parameter paging
         self._current_track = 0
         self._current_device = 0
         self._current_param_page = 0
+        self._params_per_page = 8
+        
+        # Soft takeover for encoders
+        self._encoder_values = {}  # (track, device, param): last_hardware_value
+        self._takeover_threshold = 5  # MIDI units for smooth takeover
+        self._takeover_active = {}   # (track, device, param): is_taken_over
         
     def setup_listeners(self, max_tracks=8, max_devices_per_track=8):
-        """Setup device listeners for specified tracks and devices"""
+        """Setup device listeners with enhanced parameter paging support"""
         if self._is_active:
             return
             
@@ -1556,9 +1562,16 @@ class DeviceManager:
     
     def select_device(self, track_idx, device_idx):
         """Select device for parameter editing"""
+        old_track = self._current_track
+        old_device = self._current_device
+        
         self._current_track = track_idx
         self._current_device = device_idx
         self._current_param_page = 0
+        
+        # Reset encoder takeover when switching devices
+        if old_track != track_idx or old_device != device_idx:
+            self.reset_encoder_takeover(old_track, old_device)
         
         device = self._get_device(track_idx, device_idx)
         if device:
@@ -1638,3 +1651,84 @@ class DeviceManager:
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending device param page T{track_idx}D{device_idx}: {e}")
+    
+    # ========================================
+    # SOFT TAKEOVER FOR ENCODERS
+    # ========================================
+    
+    def handle_encoder_change(self, track_idx, device_idx, param_idx, hardware_value):
+        """Handle encoder changes with soft takeover"""
+        try:
+            device = self._get_device(track_idx, device_idx)
+            if not device or param_idx >= len(device.parameters):
+                return
+                
+            param = device.parameters[param_idx]
+            param_key = (track_idx, device_idx, param_idx)
+            
+            # Current parameter value in hardware range (0-127)
+            current_value_127 = int(param.value * 127)
+            
+            # Check if this encoder is already taken over
+            is_taken_over = self._takeover_active.get(param_key, False)
+            
+            if not is_taken_over:
+                # Check if hardware value is close enough to take over
+                diff = abs(hardware_value - current_value_127)
+                if diff <= self._takeover_threshold:
+                    # Takeover achieved
+                    self._takeover_active[param_key] = True
+                    self.c_surface.log_message(
+                        f"🎹 Encoder takeover T{track_idx}D{device_idx}P{param_idx}: {param.name}"
+                    )
+                else:
+                    # Not taken over yet - ignore this change
+                    return
+            
+            # Update parameter value
+            normalized_value = hardware_value / 127.0
+            param_range = param.max - param.min
+            new_value = param.min + (normalized_value * param_range)
+            param.value = new_value
+            
+            # Store the hardware value
+            self._encoder_values[param_key] = hardware_value
+            
+            self.c_surface.log_message(
+                f"🎹 Encoder T{track_idx}D{device_idx}P{param_idx}: {param.name} = {new_value:.2f}"
+            )
+            
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error handling encoder change: {e}")
+    
+    def reset_encoder_takeover(self, track_idx=None, device_idx=None):
+        """Reset encoder takeover state"""
+        try:
+            if track_idx is not None and device_idx is not None:
+                # Reset specific device encoders
+                keys_to_reset = [k for k in self._takeover_active.keys() 
+                               if k[0] == track_idx and k[1] == device_idx]
+                for key in keys_to_reset:
+                    del self._takeover_active[key]
+                    if key in self._encoder_values:
+                        del self._encoder_values[key]
+                
+                self.c_surface.log_message(
+                    f"🔄 Reset encoder takeover for T{track_idx}D{device_idx}"
+                )
+            else:
+                # Reset all encoders
+                self._takeover_active.clear()
+                self._encoder_values.clear()
+                self.c_surface.log_message("🔄 Reset all encoder takeover")
+                
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error resetting encoder takeover: {e}")
+    
+    def get_encoder_takeover_info(self):
+        """Get current encoder takeover information"""
+        return {
+            'active_encoders': len(self._takeover_active),
+            'takeover_threshold': self._takeover_threshold,
+            'encoders': dict(self._takeover_active)
+        }
