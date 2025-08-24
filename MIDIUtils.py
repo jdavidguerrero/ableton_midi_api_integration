@@ -18,6 +18,30 @@ class SysExEncoder:
     # ========================================
     
     @staticmethod
+    def encode_14bit_value(value):
+        """Encode a value > 127 using 14-bit MSB/LSB format"""
+        if value <= 127:
+            return [value]
+        else:
+            msb = (value >> 7) & 0x7F
+            lsb = value & 0x7F
+            return [msb, lsb]
+    
+    @staticmethod
+    def decode_14bit_value(bytes_list, start_index=0):
+        """Decode 14-bit MSB/LSB value from byte array"""
+        if start_index >= len(bytes_list):
+            return 0
+        if start_index + 1 < len(bytes_list):
+            # Two bytes: MSB/LSB format
+            msb = bytes_list[start_index]
+            lsb = bytes_list[start_index + 1]
+            return (msb << 7) | lsb
+        else:
+            # Single byte
+            return bytes_list[start_index]
+
+    @staticmethod
     def create_sysex(command, payload):
         """Create a complete SysEx message with header, command, sequence, payload and checksum"""
         try:
@@ -35,9 +59,13 @@ class SysExEncoder:
             payload_len = len(payload) if payload else 0
             message.append(payload_len)
             
-            # Add payload data
+            # Add payload data (ensure 7-bit MIDI compliance)
             if payload:
-                message.extend(payload)
+                for byte in payload:
+                    if byte > 127:
+                        print(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: [{byte}]")
+                        return None
+                    message.append(byte & 0x7F)
             
             # Add enhanced checksum (XOR of command, sequence, and payload)
             checksum = command ^ sequence

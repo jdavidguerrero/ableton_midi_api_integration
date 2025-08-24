@@ -320,99 +320,75 @@ class PushClone(ControlSurface):
     def _route_command(self, command, payload):
         """Route SysEx command to appropriate manager"""
         try:
-            # Connection commands
-            if command == CMD_HANDSHAKE:
-                self._handle_handshake(payload)
-            elif command == CMD_HANDSHAKE_REPLY:
-                self._handle_handshake_reply(payload)
-            
-            # Transport commands (0x50-0x5F)
-            elif 0x50 <= command <= 0x5F:
-                self._managers['transport'].handle_transport_command(command, payload)
-            
-            # Clip view commands (0x10-0x1F)
+            # View switching
+            if command == CMD_SWITCH_VIEW:
+                self._handle_view_switch(payload)
+
+            # Clip/Scene commands (0x10-0x1F)
             elif 0x10 <= command <= 0x1F:
                 self._handle_clip_command(command, payload)
-            
-            # Mixer view commands (0x20-0x2F)
+
+            # Mixer/Track commands (0x20-0x2F)
             elif 0x20 <= command <= 0x2F:
                 self._handle_mixer_command(command, payload)
-            
-            # Device view commands (0x30-0x3F)
+
+            # Device/Plugin commands (0x30-0x3F)
             elif 0x30 <= command <= 0x3F:
                 self._handle_device_command(command, payload)
-            
-            # Note view commands (0x40-0x4F)
+
+            # Transport/Automation commands (0x40-0x4F)
             elif 0x40 <= command <= 0x4F:
+                self._managers['transport'].handle_transport_command(command, payload)
+                self._managers['automation'].handle_automation_command(command, payload)
+
+            # Note/Scale/Sequencer commands (0x50-0x5F)
+            elif 0x50 <= command <= 0x5F:
                 self._handle_note_command(command, payload)
-            
-            # Browser/Navigation commands (0xB0-0xBF)
-            elif 0xB0 <= command <= 0xBF:
-                # Check if it's a ring navigation command
-                if command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION] and self._session_ring:
+                self._managers['step_sequencer'].handle_step_sequencer_command(command, payload)
+
+            # System/Navigation commands (0x60-0x6F)
+            elif 0x60 <= command <= 0x6F:
+                if command in [CMD_HANDSHAKE, CMD_HANDSHAKE_REPLY, CMD_PING_TEST]:
+                    self._handle_handshake_command(command, payload)
+                elif command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION]:
                     self._session_ring.handle_navigation_command(command, payload)
                 else:
                     self._managers['browser'].handle_navigation_command(command, payload)
-            
-            # Automation commands (0xC0-0xCF)
-            elif 0xC0 <= command <= 0xCF:
-                self._managers['automation'].handle_automation_command(command, payload)
-            
-            # Groove Pool commands (0xD0-0xDF)
-            elif 0xD0 <= command <= 0xDF:
-                self._managers['groove_pool'].handle_groove_command(command, payload)
-                
-            # MIDI Clip commands (0xE0-0xEF)
-            elif 0xE0 <= command <= 0xEF:
-                self._managers['clip'].handle_midi_clip_command(command, payload)
-                
-            # Song Creation commands (0xF0-0xFF)
-            elif 0xF0 <= command <= 0xFF:
-                self._handle_song_creation_command(command, payload)
 
-            # Step Sequencer commands (0x80-0x8F)
-            elif 0x80 <= command <= 0x8F:
-                self._managers['step_sequencer'].handle_step_sequencer_command(command, payload)
-            
-            # View switching
-            elif command == CMD_SWITCH_VIEW:
-                self._handle_view_switch(payload)
-            
+            # Song/Clip actions (0x70-0x7F)
+            elif 0x70 <= command <= 0x7F:
+                self._handle_song_creation_command(command, payload)
+                self.handle_session_navigation_command(command, payload)
+
             else:
                 self.log_message(f"❓ Unknown command: 0x{command:02X}")
-                
+
         except Exception as e:
             self.log_message(f"❌ Error routing command 0x{command:02X}: {e}")
     
-    def _handle_handshake(self, payload):
-        """Handle handshake from hardware"""
+    def _handle_handshake_command(self, command, payload):
+        """Handle handshake commands"""
         try:
-            self.log_message("🤝 Handshake received from hardware")
-            # payload contains hardware identification info
-            
-            # Send handshake reply
-            reply_payload = [0x4C, 0x56]  # "LV" for Live
-            self._send_sysex_command(CMD_HANDSHAKE_REPLY, reply_payload)
-            
-            # Mark as connected and send complete state
-            self._is_connected = True
-            self.log_message("✅ Connection established")
-            
-            # Send complete state from all managers
-            self._send_complete_state()
-            
+            if command == CMD_HANDSHAKE:
+                self.log_message("🤝 Handshake received from hardware")
+                # payload contains hardware identification info
+                
+                # Send handshake reply
+                reply_payload = [0x4C, 0x56]  # "LV" for Live
+                self._send_sysex_command(CMD_HANDSHAKE_REPLY, reply_payload)
+                
+                # Mark as connected and send complete state
+                self._is_connected = True
+                self.log_message("✅ Connection established")
+                
+                # Send complete state from all managers
+                self._send_complete_state()
+            elif command == CMD_HANDSHAKE_REPLY:
+                self.log_message("🤝 Handshake reply received")
+                # payload contains hardware confirmation
+                self._is_connected = True
         except Exception as e:
-            self.log_message(f"❌ Error handling handshake: {e}")
-    
-    def _handle_handshake_reply(self, payload):
-        """Handle handshake reply from hardware"""
-        try:
-            self.log_message("🤝 Handshake reply received")
-            # payload contains hardware confirmation
-            self._is_connected = True
-            
-        except Exception as e:
-            self.log_message(f"❌ Error handling handshake reply: {e}")
+            self.log_message(f"❌ Error handling handshake command 0x{command:02X}: {e}")
     
     def _send_complete_state(self):
         """Send complete state from all managers"""

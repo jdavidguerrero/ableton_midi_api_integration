@@ -292,7 +292,14 @@ class SessionRing:
     def _send_ring_position(self):
         """Send current ring position to hardware"""
         try:
-            payload = [self.track_offset, self.scene_offset, self.ring_width, self.ring_height]
+            from .MIDIUtils import SysExEncoder
+            
+            # Temporarily clamp to 7-bit range until restart
+            track_offset_safe = min(127, self.track_offset)
+            scene_offset_safe = min(127, self.scene_offset)
+            
+            # Use simple 7-bit values for now (will be fixed after restart)
+            payload = [track_offset_safe, scene_offset_safe, self.ring_width, self.ring_height]
             self.c_surface._send_sysex_command(CMD_RING_POSITION, payload)
             
         except Exception as e:
@@ -329,7 +336,13 @@ class SessionRing:
             # Calculate relative position within ring
             relative_track = track_index - self.track_offset
             if 0 <= relative_track < self.ring_width:
-                payload = [relative_track, 1]  # 1 = selected
+                # Use 7-bit safe values
+                payload = [relative_track & 0x7F, 1]  # 1 = selected
+                self.c_surface._send_sysex_command(CMD_TRACK_SELECT, payload)
+            else:
+                # Track is outside ring - clamp to 7-bit range temporarily
+                track_safe = min(127, track_index)
+                payload = [track_safe, 0]  # 0 = outside ring
                 self.c_surface._send_sysex_command(CMD_TRACK_SELECT, payload)
                 
         except Exception as e:
@@ -341,7 +354,13 @@ class SessionRing:
             # Calculate relative position within ring
             relative_scene = scene_index - self.scene_offset
             if 0 <= relative_scene < self.ring_height:
-                payload = [relative_scene, 1]  # 1 = selected
+                # Use 7-bit safe values
+                payload = [relative_scene & 0x7F, 1]  # 1 = selected
+                self.c_surface._send_sysex_command(CMD_SCENE_SELECT, payload)
+            else:
+                # Scene is outside ring - clamp to 7-bit range temporarily
+                scene_safe = min(127, scene_index)
+                payload = [scene_safe, 0]  # 0 = outside ring
                 self.c_surface._send_sysex_command(CMD_SCENE_SELECT, payload)
                 
         except Exception as e:
