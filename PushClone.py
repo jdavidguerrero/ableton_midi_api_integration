@@ -250,6 +250,40 @@ class PushClone(ControlSurface):
     def _send_sysex_command_silent(self, command, payload):
         """Send SysEx command silently (no logging)"""
         self._send_sysex_command(command, payload, silent=True)
+
+    def receive_midi(self, midi_bytes):
+        """Receive incoming MIDI from the configured input port.
+
+        Live delivers all MIDI (including SysEx) here. We forward SysEx to
+        handle_sysex so the Teensy handshake and subsequent commands are processed.
+        """
+        try:
+            if not midi_bytes:
+                return
+            status = midi_bytes[0]
+
+            # SysEx message
+            if status == 0xF0:
+                self.handle_sysex(midi_bytes)
+                return
+
+            # Optional logging for channel voice messages
+            if LOG_MIDI_MESSAGES:
+                try:
+                    self.log_message(f"🎛️ MIDI IN: {tuple(midi_bytes)}")
+                except Exception:
+                    pass
+        except Exception as e:
+            self.log_message(f"❌ Error in receive_midi: {e}")
+
+    def port_settings_changed(self):
+        """Called by Live when MIDI port assignments change in Preferences."""
+        try:
+            self.log_message("🔌 MIDI ports changed — re-sending handshake")
+            self._is_connected = False
+            self._send_handshake()
+        except Exception as e:
+            self.log_message(f"❌ Error in port_settings_changed: {e}")
     
     def test_midi_connection(self):
         """Test MIDI connection by sending a simple ping"""
