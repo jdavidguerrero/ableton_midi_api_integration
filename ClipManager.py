@@ -70,6 +70,18 @@ class ClipManager:
             clip_slot.add_playing_status_listener(playing_listener)
             listeners.append(('playing_status', playing_listener))
             
+            # FIXED: Add missing fired slot listener (queued state)
+            if hasattr(clip_slot, 'add_fired_slot_listener'):
+                fired_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_fired_changed(t_idx, s_idx)
+                clip_slot.add_fired_slot_listener(fired_listener)
+                listeners.append(('fired_slot', fired_listener))
+            
+            # FIXED: Add stop button availability
+            if hasattr(clip_slot, 'add_has_stop_button_listener'):
+                stop_button_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_stop_button_changed(t_idx, s_idx)
+                clip_slot.add_has_stop_button_listener(stop_button_listener)
+                listeners.append(('has_stop_button', stop_button_listener))
+            
             # === CLIP LISTENERS (if clip exists) ===
             if clip_slot.has_clip:
                 self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
@@ -329,15 +341,45 @@ class ClipManager:
                         self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
             
             self._send_clip_state(track_idx, scene_idx)
-            self._send_neotrellis_clip_grid()
+            self._send_grid_update()
     
     def _on_clip_playing_changed(self, track_idx, scene_idx):
         """Clip playing status changed"""
         if self.c_surface._is_connected:
             self.c_surface.log_message(f"▶️ Clip T{track_idx}S{scene_idx} playing status changed")
             self._send_clip_state(track_idx, scene_idx)
-            self._send_neotrellis_clip_grid()
+            self._send_grid_update()
     
+    def _on_clip_fired_changed(self, track_idx, scene_idx):
+        """Handle clip fired/queued status change"""
+        try:
+            if self._is_valid_position(track_idx, scene_idx):
+                clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
+                is_fired = getattr(clip_slot, 'is_fired', False)
+                
+                # Send clip queued state to hardware
+                self._send_clip_queued_state(track_idx, scene_idx, is_fired)
+                
+                if LOG_LISTENER_EVENTS:
+                    self.c_surface.log_message(f"🎯 Clip T{track_idx}S{scene_idx} fired/queued: {is_fired}")
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error in clip fired change T{track_idx}S{scene_idx}: {e}")
+    
+    def _on_clip_stop_button_changed(self, track_idx, scene_idx):
+        """Handle stop button availability change"""
+        try:
+            if self._is_valid_position(track_idx, scene_idx):
+                clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
+                has_stop_button = getattr(clip_slot, 'has_stop_button', False)
+                
+                # Send stop button state to hardware
+                self._send_clip_stop_button_state(track_idx, scene_idx, has_stop_button)
+                
+                if LOG_LISTENER_EVENTS:
+                    self.c_surface.log_message(f"🛑 Clip T{track_idx}S{scene_idx} stop button: {has_stop_button}")
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error in clip stop button change T{track_idx}S{scene_idx}: {e}")
+
     def _on_clip_name_changed(self, track_idx, scene_idx):
         """Clip name changed"""
         if self.c_surface._is_connected and self._clip_exists(track_idx, scene_idx):
@@ -352,7 +394,7 @@ class ClipManager:
             color_rgb = ColorUtils.live_color_to_rgb(clip.color)
             self.c_surface.log_message(f"🎨 Clip T{track_idx}S{scene_idx} color: {color_rgb}")
             self._send_clip_state(track_idx, scene_idx)  # Send full state with new color
-            self._send_neotrellis_clip_grid()
+            self._send_grid_update()
     
     def _on_clip_loop_changed(self, track_idx, scene_idx):
         """Clip loop state changed"""
@@ -1270,7 +1312,7 @@ class ClipManager:
             for scene_idx in self._scene_listeners.keys():
                 self.send_complete_scene_state(scene_idx)
 
-            self._send_neotrellis_clip_grid()
+            self._send_grid_update()
             
             self.c_surface.log_message("✅ Clip/scene state sent")
             

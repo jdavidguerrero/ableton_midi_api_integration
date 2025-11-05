@@ -820,6 +820,18 @@ class PushClone(ControlSurface):
             if hasattr(self.application(), 'get_major_version'):
                 major = self.application().get_major_version()
                 minor = getattr(self.application(), 'get_minor_version', lambda: 0)()
+                
+                # Log Live version for Push 3 Clone compatibility
+                self.log_message(f"🎵 Ableton Live {major}.{minor} detected")
+                
+                # Live 12 specific feature detection
+                if major >= 12:
+                    self.log_message("✅ Live 12+ features available")
+                    self._live_12_features = True
+                else:
+                    self.log_message("⚠️ Live 12 features not available")
+                    self._live_12_features = False
+                
                 return (major, minor)
             return (11, 0)  # Default fallback
         except Exception:

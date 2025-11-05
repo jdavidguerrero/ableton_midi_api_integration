@@ -101,7 +101,7 @@ CMD_UNDO = 0x4E                 # Undo action (Teensy → Live)
 CMD_REDO = 0x4F                 # Redo action (Teensy → Live)
 
 # ========================================
-# NOTE/SCALE/SEQUENCER COMMANDS (0x50-0x5F)
+# NOTE/SCALE/SEQUENCER COMMANDS (0x50-0x5F) - PUSH 3 ENHANCED
 # ========================================
 CMD_NOTE_ON = 0x50              # MIDI note on (Teensy → Live)
 CMD_NOTE_OFF = 0x51             # MIDI note off (Teensy → Live)
@@ -118,6 +118,11 @@ CMD_STEP_EDIT_PARAMS = 0x5B     # Step edit parameters (bidirectional)
 CMD_STEP_SEQUENCER_INFO = 0x5C  # Sequencer info (Live → Teensy)
 CMD_STEP_CLEAR_ALL = 0x5D       # Clear all notes in page (Teensy → Live)
 CMD_STEP_COPY_PAGE = 0x5E       # Copy page (Teensy → Live)
+
+# GRID COMMANDS - Essential for 8x4 matrix
+CMD_GRID_UPDATE = 0x80          # Full 8x4 grid color update (Live → Hardware)
+CMD_GRID_SINGLE_PAD = 0x81      # Single pad color (Live → Hardware)  
+CMD_GRID_PAD_PRESS = 0x82       # Pad press/release (Hardware → Live)
 
 # ========================================
 # SYSTEM/NAVIGATION COMMANDS (0x60-0x6F)
@@ -156,8 +161,8 @@ CMD_CLIP_DUPLICATE_RESULT = 0x7A # Duplicate result
 CMD_CLIP_DELETE_RESULT = 0x7B   # Delete result
 CMD_CLIP_COPY_RESULT = 0x7C     # Copy result
 CMD_CLIP_PASTE_RESULT = 0x7D    # Paste result
-CMD_CAPTURE_MIDI = 0x7E         # Capture MIDI (Teensy → Live)
-CMD_QUANTIZE_NOTES = 0x7F       # Quantize notes (Teensy → Live)
+CMD_CAPTURE_MIDI = 0x7E         # Capture MIDI (Hardware → Live)
+CMD_QUANTIZE_NOTES = 0x7F       # Quantize notes (Hardware → Live)
 
 # ========================================
 # CLIP STATES
@@ -168,14 +173,14 @@ CLIP_QUEUED = 2
 CLIP_RECORDING = 3
 
 # ========================================
-# GRID DIMENSIONS
+# PUSH CLONE GRID CONFIGURATION
 # ========================================
-GRID_WIDTH = 8                  # Scenes (horizontal)
-GRID_HEIGHT = 4                 # Tracks (vertical)
-TOTAL_PADS = GRID_WIDTH * GRID_HEIGHT  # 32 pads total
+GRID_WIDTH = 8                  # 8 scenes (horizontal)
+GRID_HEIGHT = 4                 # 4 tracks (vertical)  
+TOTAL_PADS = 32                 # 8x4 = 32 pads
 
 # ========================================
-# LIVE COLOR MAPPING
+# LIVE COLOR MAPPING (for hardware)
 # ========================================
 LIVE_COLORS = {
     0: (255, 76, 76),    # Red
@@ -194,6 +199,14 @@ LIVE_COLORS = {
     13: (255, 255, 255), # White
     14: (50, 50, 50),    # Dark Gray
     15: (0, 0, 0),       # Black
+}
+
+# Clip state colors
+CLIP_STATE_COLORS = {
+    CLIP_EMPTY: (0, 0, 0),           # Off
+    CLIP_PLAYING: (76, 255, 76),     # Green
+    CLIP_QUEUED: (255, 255, 76),     # Yellow
+    CLIP_RECORDING: (255, 76, 76),   # Red
 }
 
 # ========================================
@@ -234,19 +247,7 @@ LOG_VIEW_SWITCHES = True
 LOG_PARAMETER_CHANGES = False
 
 # ========================================
-# HARDWARE CONFIGURATION
+# PROTOCOL SETTINGS
 # ========================================
-NEOTRELLIS_ROWS = 4
-NEOTRELLIS_COLS = 8
-NUM_ENCODERS = 8
-NUM_FADERS = 4
-NUM_BUTTONS = 16
-
-# ========================================
-# TIMING CONFIGURATION
-# ========================================
-DEBOUNCE_TIME_MS = 50           # Button debounce time
-ENCODER_SENSITIVITY = 1         # Encoder steps per value change
-FADER_SMOOTHING = 0.1          # Fader value smoothing
-LED_BRIGHTNESS = 0.8           # Default LED brightness
-LED_UPDATE_RATE_MS = 50        # LED update frequency
+MAX_SYSEX_SIZE = 64             # Maximum SysEx message size
+GRID_UPDATE_RATE_MS = 16        # ~60fps grid updates
