@@ -391,15 +391,21 @@ class PushClone(ControlSurface):
             # System/Navigation commands (0x60-0x6F)
             elif 0x60 <= command <= 0x6F:
                 self.log_message(f"🔵 Routing navigation command 0x{command:02X}")
-                if command in [CMD_HANDSHAKE, CMD_HANDSHAKE_REPLY, CMD_PING_TEST]:
-                    self._handle_handshake_command(command, payload)
-                elif command == CMD_RING_NAVIGATE: # Explicitly handle CMD_RING_NAVIGATE
-                    self.log_message(f"🔵 Sending to SessionRing: CMD=0x{command:02X} (Navigate)")
-                    self._session_ring.handle_navigation_command(command, payload)
-                elif command in [CMD_RING_SELECT, CMD_RING_POSITION]:
-                    self.log_message(f"🔵 Sending to SessionRing: CMD=0x{command:02X}")
-                    self._session_ring.handle_navigation_command(command, payload)
+                navigation_handlers = {
+                    CMD_HANDSHAKE: self._handle_handshake_command,
+                    CMD_HANDSHAKE_REPLY: self._handle_handshake_command,
+                    CMD_PING_TEST: self._handle_handshake_command,
+                    CMD_RING_NAVIGATE: self._session_ring.handle_navigation_command,
+                    CMD_RING_SELECT: self._session_ring.handle_navigation_command,
+                    CMD_RING_POSITION: self._session_ring.handle_navigation_command,
+                }
+                handler = navigation_handlers.get(command)
+                if handler:
+                    if command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION]:
+                        self.log_message(f"🔵 Sending to SessionRing: CMD=0x{command:02X}")
+                    handler(command, payload)
                 else:
+                    # If not a specific system/ring command, try browser manager
                     self._managers['browser'].handle_navigation_command(command, payload)
 
             # Song/Clip actions (0x70-0x7F)
