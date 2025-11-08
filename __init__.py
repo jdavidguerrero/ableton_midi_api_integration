@@ -1,11 +1,17 @@
-# __init__.py - Entry Point (sin cambios)
+# __init__.py - Entry Point
 from .PushClone import PushClone
+import logging
+
+# Get the logger for the script
+logger = logging.getLogger(__name__)
 
 def create_instance(c_instance):
     """
     Entry point for Live to create our control surface instance.
     c_instance: Live's C++ instance for communication
     """
+    # Log a version number to help verify script updates
+    logger.info("--- PushClone Script v1.0.1 Loading ---")
     return PushClone(c_instance)
 
 def get_capabilities():
