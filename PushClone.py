@@ -312,10 +312,14 @@ class PushClone(ControlSurface):
     def handle_sysex(self, midi_bytes):
         """Handle incoming SysEx messages from hardware"""
         try:
+            # Log raw bytes immediately for debugging
+            hex_str = " ".join([f"{b:02X}" for b in midi_bytes])
+            self.log_message(f"🔵 SYSEX_IN (raw): {hex_str}")
+
             if len(midi_bytes) < 6:  # Minimum valid message length
                 self.log_message(f"⚠️ SysEx too short: {len(midi_bytes)} bytes")
                 return
-            
+
             # Log incoming SysEx for debugging
             SysExEncoder.log_sysex(list(midi_bytes), "IN")
             
@@ -386,9 +390,11 @@ class PushClone(ControlSurface):
 
             # System/Navigation commands (0x60-0x6F)
             elif 0x60 <= command <= 0x6F:
+                self.log_message(f"🔵 Routing navigation command 0x{command:02X}")
                 if command in [CMD_HANDSHAKE, CMD_HANDSHAKE_REPLY, CMD_PING_TEST]:
                     self._handle_handshake_command(command, payload)
                 elif command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION]:
+                    self.log_message(f"🔵 Sending to SessionRing: CMD=0x{command:02X}")
                     self._session_ring.handle_navigation_command(command, payload)
                 else:
                     self._managers['browser'].handle_navigation_command(command, payload)

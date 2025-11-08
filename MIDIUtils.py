@@ -1,622 +1,294 @@
-# MIDIUtils.py - EXTENDED VERSION (agregar estos métodos)
+# MIDIUtils.py - Unified MIDI Encoding Utilities
+"""
+Handles encoding of binary data into MIDI SysEx messages, with a focus on
+full 24-bit (14-bit encoded) color support for modern controllers like NeoTrellis.
+"""
+
 from .consts import *
 
+# ========================================
+# Color Encoding Utilities
+# ========================================
+
+class ColorEncoder:
+    """
+    Advanced color encoding for controllers supporting full RGB.
+    Supports full 0-255 RGB values through 14-bit MIDI encoding.
+    """
+
+    @staticmethod
+    def encode_rgb_14bit(r, g, b):
+        """
+        Encodes a 24-bit RGB color into a 6-byte, 14-bit representation suitable for SysEx.
+        Each color channel (0-255) is split into two 7-bit bytes (MSB and LSB).
+        """
+        r = max(0, min(255, int(r)))
+        g = max(0, min(255, int(g)))
+        b = max(0, min(255, int(b)))
+
+        # Encode each channel
+        r_msb = (r >> 7) & 0x7F
+        r_lsb = r & 0x7F
+        g_msb = (g >> 7) & 0x7F
+        g_lsb = g & 0x7F
+        b_msb = (b >> 7) & 0x7F
+        b_lsb = b & 0x7F
+
+        # Return encoded bytes in RGB order: [R_MSB, R_LSB, G_MSB, G_LSB, B_MSB, B_LSB]
+        return [r_msb, r_lsb, g_msb, g_lsb, b_msb, b_lsb]
+
+    @staticmethod
+    def decode_rgb_14bit(data, offset=0):
+        """
+        Decodes a 6-byte, 14-bit representation back into a 24-bit RGB tuple.
+        """
+        if len(data) < offset + 6:
+            return (0, 0, 0)
+
+        r = (data[offset + 0] << 7) | data[offset + 1]
+        g = (data[offset + 2] << 7) | data[offset + 3]
+        b = (data[offset + 4] << 7) | data[offset + 5]
+
+        return (r, g, b)
+
+# ========================================
+# Main SysEx Encoder
+# ========================================
+
 class SysExEncoder:
-    """Handles encoding of binary data into MIDI SysEx messages with sequence numbers"""
-    
-    _sequence_number = 0  # Class variable for sequence tracking
-    _max_sequence = 127   # Max sequence number (7-bit)
-    
+    """
+    Handles the creation of MIDI SysEx messages for the PushClone protocol.
+    """
+    _sequence_number = 0
+    _max_sequence = 127
+
     @classmethod
     def _get_next_sequence(cls):
-        """Get next sequence number for message ordering"""
+        """Gets the next sequence number for message ordering and reliability."""
         cls._sequence_number = (cls._sequence_number + 1) % cls._max_sequence
         return cls._sequence_number
-    
-    # ========================================
-    # TUS MÉTODOS EXISTENTES (mantener como están)
-    # ========================================
-    
-    @staticmethod
-    def encode_14bit_value(value):
-        """Encode a value > 127 using 14-bit MSB/LSB format"""
-        if value <= 127:
-            return [value]
-        else:
-            msb = (value >> 7) & 0x7F
-            lsb = value & 0x7F
-            return [msb, lsb]
-    
-    @staticmethod
-    def decode_14bit_value(bytes_list, start_index=0):
-        """Decode 14-bit MSB/LSB value from byte array"""
-        if start_index >= len(bytes_list):
-            return 0
-        if start_index + 1 < len(bytes_list):
-            # Two bytes: MSB/LSB format
-            msb = bytes_list[start_index]
-            lsb = bytes_list[start_index + 1]
-            return (msb << 7) | lsb
-        else:
-            # Single byte
-            return bytes_list[start_index]
 
     @staticmethod
     def create_sysex(command, payload):
-        """Create a complete SysEx message with header, command, sequence, payload and checksum"""
+        """
+        Creates a complete, valid SysEx message with header, command, sequence,
+        length, payload, and checksum.
+        """
         try:
-            # Start with SysEx header
             message = list(SYSEX_HEADER)
+            message.append(command & 0x7F)
             
-            # Add command byte
-            message.append(command)
-            
-            # Add sequence number for message ordering
             sequence = SysExEncoder._get_next_sequence()
             message.append(sequence)
             
-            # Add payload length
             payload_len = len(payload) if payload else 0
-            message.append(payload_len)
-            
-            # Add payload data (ensure 7-bit MIDI compliance)
+            # Encode length as 14-bit value if it exceeds 127
+            if payload_len > 127:
+                message.extend([(payload_len >> 7) & 0x7F, payload_len & 0x7F])
+            else:
+                message.append(payload_len & 0x7F)
+
             if payload:
                 for byte in payload:
-                    if byte > 127:
-                        print(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: [{byte}]")
+                    if not (0 <= byte <= 127):
+                        print(f"❌ Invalid 8-bit value in SysEx payload: {byte}. Command: 0x{command:02X}")
                         return None
-                    message.append(byte & 0x7F)
+                    message.append(byte)
             
-            # Add enhanced checksum (XOR of command, sequence, and payload)
             checksum = command ^ sequence
             if payload:
                 for byte in payload:
                     checksum ^= byte
-            message.append(checksum & 0x7F)  # Keep in 7-bit MIDI range
+            message.append(checksum & 0x7F)
             
-            # Add SysEx end byte
             message.append(SYSEX_END)
-            
             return message
-            
         except Exception as e:
-            print(f"❌ Error creating SysEx: {e}")
+            print(f"❌ Error creating SysEx message: {e}")
             return None
 
-    @staticmethod
-    def encode_clip_state(track, scene, state, color):
-        """Encode clip state message"""
-        try:
-            r, g, b = color if isinstance(color, (list, tuple)) and len(color) >= 3 else (127, 127, 127)
-            
-            # Ensure RGB values are in MIDI range (0-127)
-            r = min(127, max(0, int(r // 2)))  # Convert from 0-255 to 0-127
-            g = min(127, max(0, int(g // 2)))
-            b = min(127, max(0, int(b // 2)))
-            
-            payload = [track, scene, state, r, g, b]
-            return SysExEncoder.create_sysex(CMD_CLIP_STATE, payload)
-            
-        except Exception as e:
-            print(f"❌ Error encoding clip state: {e}")
-            return None
+    # --- Grid and Color Commands ---
 
     @staticmethod
-    def encode_track_color(track, color):
-        """Encode track color message"""
-        try:
-            r, g, b = color if isinstance(color, (list, tuple)) and len(color) >= 3 else (127, 127, 127)
-            
-            # Ensure RGB values are in MIDI range (0-127)
-            r = min(127, max(0, int(r // 2)))  # Convert from 0-255 to 0-127
-            g = min(127, max(0, int(g // 2)))
-            b = min(127, max(0, int(b // 2)))
-            
-            payload = [track, r, g, b]
-            return SysExEncoder.create_sysex(CMD_TRACK_COLOR, payload)
-            
-        except Exception as e:
-            print(f"❌ Error encoding track color: {e}")
-            return None
-
-    @staticmethod
-    def encode_transport(playing, beat, bar):
-        """Encode transport state message"""
-        try:
-            playing_byte = 1 if playing else 0
-            beat_byte = int(beat) & 0x7F  # Keep in 7-bit range
-            bar_byte = int(bar) & 0x7F
-            
-            payload = [playing_byte, beat_byte, bar_byte]
-            return SysExEncoder.create_sysex(CMD_TRANSPORT, payload)
-            
-        except Exception as e:
-            print(f"❌ Error encoding transport: {e}")
-            return None
-
-    @staticmethod
-    def log_sysex(message, direction="OUT"):
-        """Log SysEx message for debugging"""
-        try:
-            if not message:
-                print(f"❌ {direction}: Empty SysEx message")
-                return
-                
-            hex_string = " ".join([f"{b:02X}" for b in message])
-            command = message[4] if len(message) > 4 else 0x00
-            length = len(message)
-            
-            print(f"🔌 {direction}: CMD:{command:02X} LEN:{length} DATA:[{hex_string}]")
-            
-        except Exception as e:
-            print(f"❌ Error logging SysEx: {e}")
-    
-    # ========================================
-    # NUEVOS MÉTODOS PARA AGREGAR
-    # ========================================
-    
-    @staticmethod
-    def encode_mixer_channel(track, volume, pan, sends, flags):
+    def encode_grid_update_full_rgb(grid_data, logger=None):
         """
-        Encode mixer channel state
-        Args:
-            track (int): Track index (0-7)
-            volume (int): Volume 0-127
-            pan (int): Pan 0-127 (64=center)
-            sends (list): Send levels [A, B, C] 0-127 each
-            flags (int): Packed flags (mute=0x01, solo=0x02, arm=0x04)
-        Returns:
-            list: SysEx message
+        Encodes the entire 8x4 grid state with full 24-bit RGB colors.
         """
-        # Ensure sends has exactly 3 values
-        while len(sends) < 3:
-            sends.append(0)
-        sends = sends[:3]  # Take only first 3
-        
-        payload = [track, volume, pan] + sends + [flags]
-        return SysExEncoder.create_sysex(CMD_MIXER_STATE, payload)
-    
-    @staticmethod
-    def encode_device_list(track, devices_info):
-        """
-        Encode device list for track
-        Args:
-            track (int): Track index (0-7)
-            devices_info (list): List of device info dicts
-                Each dict: {'name': str, 'enabled': bool, 'index': int}
-        Returns:
-            list: SysEx message
-        """
-        payload = [track, len(devices_info)]
-        
-        for device in devices_info[:8]:  # Max 8 devices
-            name_bytes = device['name'].encode('utf-8')[:10]  # Max 10 chars
-            
-            payload.extend([
-                device['index'],
-                len(name_bytes),
-                1 if device['enabled'] else 0
-            ])
-            payload.extend(list(name_bytes))
-        
-        return SysExEncoder.create_sysex(CMD_DEVICE_LIST, payload)
-    
-    @staticmethod
-    def encode_device_params(track, device, page, total_pages, params_info):
-        """
-        Encode device parameters for specific page
-        Args:
-            track (int): Track index
-            device (int): Device index
-            page (int): Current page (0-based)
-            total_pages (int): Total number of pages
-            params_info (list): List of 8 parameter dicts
-                Each dict: {'index': int, 'value': int 0-127, 'name': str}
-                Use {'index': 0xFF} for empty slots
-        Returns:
-            list: SysEx message
-        """
-        payload = [track, device, page, total_pages]
-        
-        # Always send exactly 8 parameters
-        for i in range(8):
-            if i < len(params_info):
-                param = params_info[i]
-                if param['index'] != 0xFF:  # Valid parameter
-                    name_bytes = param['name'].encode('utf-8')[:8]
-                    payload.extend([
-                        param['index'],
-                        param['value'],
-                        len(name_bytes)
-                    ])
-                    payload.extend(list(name_bytes))
-                else:  # Empty parameter
-                    payload.extend([0xFF, 0, 0])
-            else:  # No parameter data
-                payload.extend([0xFF, 0, 0])
-        
-        return SysExEncoder.create_sysex(CMD_DEVICE_PARAMS, payload)
-    
-    @staticmethod
-    def encode_param_value(track, device, param, value, display_str):
-        """
-        Encode individual parameter value with display string
-        Args:
-            track (int): Track index
-            device (int): Device index  
-            param (int): Parameter index
-            value (int): Parameter value 0-127
-            display_str (str): Display string (e.g., "120 Hz", "50%")
-        Returns:
-            list: SysEx message
-        """
-        display_bytes = display_str.encode('utf-8')[:10]  # Max 10 chars
-        
-        payload = [track, device, param, value, len(display_bytes)]
-        payload.extend(list(display_bytes))
-        
-        return SysExEncoder.create_sysex(CMD_PARAM_VALUE, payload)
-    
-    @staticmethod
-    def encode_scale_info(root_note, scale_id):
-        """
-        Encode scale and root note information
-        Args:
-            root_note (int): Root note 0-11 (C=0)
-            scale_id (int): Scale ID (Major=0, Minor=1, etc.)
-        Returns:
-            list: SysEx message
-        """
-        payload = [root_note, scale_id]
-        return SysExEncoder.create_sysex(CMD_SCALE_INFO, payload)
-    
-    @staticmethod
-    def encode_octave_info(octave):
-        """
-        Encode octave information
-        Args:
-            octave (int): Current octave (0-8)
-        Returns:
-            list: SysEx message
-        """
-        payload = [octave]
-        return SysExEncoder.create_sysex(CMD_OCTAVE_INFO, payload)
-    
-    @staticmethod
-    def encode_track_instrument(track, has_instrument, is_drum_rack, instrument_name):
-        """
-        Encode track instrument information for note view
-        Args:
-            track (int): Track index
-            has_instrument (bool): Track has instrument device
-            is_drum_rack (bool): Instrument is drum rack
-            instrument_name (str): Instrument device name
-        Returns:
-            list: SysEx message
-        """
-        name_bytes = instrument_name.encode('utf-8')[:10] if instrument_name else []
-        
-        payload = [
-            track,
-            1 if has_instrument else 0,
-            1 if is_drum_rack else 0,
-            len(name_bytes)
-        ]
-        payload.extend(list(name_bytes))
-        
-        return SysExEncoder.create_sysex(CMD_TRACK_INSTRUMENT, payload)
-    
-    @staticmethod
-    def encode_view_switch(view_id):
-        """
-        Encode view switch command
-        Args:
-            view_id (int): View ID (0=clip, 1=mixer, 2=device, 3=note)
-        Returns:
-            list: SysEx message
-        """
-        payload = [view_id]
-        return SysExEncoder.create_sysex(CMD_SWITCH_VIEW, payload)
-    
-    @staticmethod
-    def encode_scene_state(scene, is_triggered):
-        """
-        Encode scene state
-        Args:
-            scene (int): Scene index
-            is_triggered (bool): Scene is triggered/queued
-        Returns:
-            list: SysEx message
-        """
-        payload = [scene, 1 if is_triggered else 0]
-        return SysExEncoder.create_sysex(CMD_SCENE_STATE, payload)
-    
-    @staticmethod
-    def encode_neotrellis_grid(track, device, grid_data):
-        """
-        Encode NeoTrellis 4x8 drum grid
-        Args:
-            track (int): Track index
-            device (int): Device index
-            grid_data (list): 32 color values (0=empty, 1=loaded, 2=active, 3=selected)
-        Returns:
-            list: SysEx message
-        """
-        # Ensure we have exactly 32 values
-        while len(grid_data) < 32:
-            grid_data.append(0)
-        grid_data = grid_data[:32]
-        
-        payload = [track, device] + grid_data
-        return SysExEncoder.create_sysex(CMD_NEOTRELLIS_GRID, payload)
-
-    @staticmethod
-    def encode_neotrellis_clip_grid(grid_data):
-        """
-        Encode NeoTrellis 8x4 clip grid colors
-        Args:
-            grid_data (list): 32 RGB color tuples (r, g, b)
-        Returns:
-            list: SysEx message
-        """
-        # Ensure we have exactly 32 values
         while len(grid_data) < 32:
             grid_data.append((0, 0, 0))
         grid_data = grid_data[:32]
-        
+
+        if logger:
+            logger("=" * 80)
+            logger(f"GRID_ENCODE: Encoding {len(grid_data)} pads with full RGB (14-bit)")
+            logger("=" * 80)
+
         payload = []
-        for r, g, b in grid_data:
-            payload.extend([r >> 1, g >> 1, b >> 1]) # Convert to 7-bit
-            
+        for pad_idx, (r, g, b) in enumerate(grid_data):
+            # Calculate row/col for display
+            track = pad_idx // 8  # 0-3 (4 tracks)
+            scene = pad_idx % 8   # 0-7 (8 scenes)
+
+            encoded = ColorEncoder.encode_rgb_14bit(r, g, b)
+            payload.extend(encoded)
+
+            # Log ALL pads to see what's being sent
+            if logger:
+                logger(f"PAD[{pad_idx:02d}] T{track}S{scene}: RGB({r:3d},{g:3d},{b:3d}) -> [{encoded[0]:02X} {encoded[1]:02X}] [{encoded[2]:02X} {encoded[3]:02X}] [{encoded[4]:02X} {encoded[5]:02X}]")
+
+        if logger:
+            logger(f"GRID_ENCODE: Total payload size: {len(payload)} bytes (expected: 192)")
+            logger("=" * 80)
+
         return SysExEncoder.create_sysex(CMD_NEOTRELLIS_CLIP_GRID, payload)
 
     @staticmethod
-    def encode_step_sequencer_state(grid_data):
+    def encode_clip_state_full_rgb(track, scene, state, color):
         """
-        Encode Step Sequencer grid state
-        Args:
-            grid_data (list): 32 values representing the state of each step
-        Returns:
-            list: SysEx message
+        Encodes the state and full 24-bit RGB color of a single clip.
         """
-        while len(grid_data) < 32:
-            grid_data.append(0)
-        grid_data = grid_data[:32]
+        r, g, b = color if isinstance(color, (list, tuple)) else (0,0,0)
+
+        payload = [track & 0x7F, scene & 0x7F, state & 0x7F]
+        encoded_color = ColorEncoder.encode_rgb_14bit(r, g, b)
+        payload.extend(encoded_color)
+
+        return SysExEncoder.create_sysex(CMD_CLIP_STATE, payload)
+
+    @staticmethod
+    def encode_clip_state_compact(track, scene, state, color):
+        """
+        Encodes clip state with compact 7-bit RGB. For legacy or low-bandwidth use.
+        """
+        r, g, b = color if isinstance(color, (list, tuple)) else (128, 128, 128)
+        payload = [
+            track & 0x7F,
+            scene & 0x7F,
+            state & 0x7F,
+            (int(r) >> 1) & 0x7F,
+            (int(g) >> 1) & 0x7F,
+            (int(b) >> 1) & 0x7F,
+        ]
+        return SysExEncoder.create_sysex(CMD_CLIP_STATE, payload)
+
+    # --- Other Encoders ---
+
+    @staticmethod
+    def encode_param_value(track, device, param, value, display_str):
+        """Encodes an individual parameter value with its display string."""
+        display_bytes = display_str.encode('utf-8')[:10]
         
-        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_STATE, grid_data)
+        payload = [
+            track & 0x7F,
+            device & 0x7F,
+            param & 0x7F,
+            value & 0x7F,
+            len(display_bytes)
+        ]
+        payload.extend(list(display_bytes))
+        
+        return SysExEncoder.create_sysex(CMD_PARAM_VALUE, payload)
 
     @staticmethod
-    def encode_step_sequencer_note(track, note, velocity):
-        """
-        Encode a step sequencer note on/off
-        Args:
-            track (int): track index
-            note (int): MIDI note number
-            velocity (int): Note velocity (0 for note off)
-        Returns:
-            list: SysEx message
-        """
-        payload = [track, note, velocity]
-        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_NOTE, payload)
+    def encode_transport(playing, beat, bar):
+        """Encodes the main transport state."""
+        payload = [
+            1 if playing else 0,
+            int(beat) & 0x7F,
+            int(bar) & 0x7F
+        ]
+        return SysExEncoder.create_sysex(CMD_TRANSPORT, payload)
 
     @staticmethod
-    def encode_step_sequencer_resolution(resolution):
-        """
-        Encode step sequencer resolution change
-        Args:
-            resolution (int): New resolution index
-        Returns:
-            list: SysEx message
-        """
-        payload = [resolution]
-        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_RESOLUTION, payload)
-
-    @staticmethod
-    def encode_step_sequencer_page(page):
-        """
-        Encode step sequencer page change
-        Args:
-            page (int): New page index
-        Returns:
-            list: SysEx message
-        """
-        payload = [page]
-        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_PAGE, payload)
+    def log_sysex(message, direction="OUT"):
+        """Logs a SysEx message for debugging purposes."""
+        if not message:
+            print(f"--- {direction}: Empty SysEx message ---")
+            return
+        hex_string = " ".join([f"{b:02X}" for b in message])
+        command = message[4] if len(message) > 4 else 0x00
+        print(f"MIDI {direction} | CMD: {command:02X} | LEN: {len(message)} | DATA: [{hex_string}]")
 
 # ========================================
-# ColorUtils CLASS (tu clase existente es perfecta)
+# Color Transformation Utilities
 # ========================================
 
 class ColorUtils:
-    """Color conversion utilities"""
+    """
+    Utility class for handling Ableton Live's color system and converting
+    it into usable RGB values for the hardware controller.
+    """
     
     @staticmethod
     def live_color_to_rgb(live_color):
         """
-        Convert Live color value to RGB tuple
-        Args:
-            live_color: Live color index or value
-        Returns:
-            tuple: (r, g, b) values 0-255
+        Converts a Live color value into a 24-bit RGB tuple.
+
+        Live's color property returns an integer representing RGB:
+        - If value is small (0-69), it's a Live color index
+        - If value is large, it's a packed RGB integer: 0xRRGGBB
+
+        Example: 16249980 = 0xF8EB0C = RGB(248, 235, 12) = Yellow
         """
+        from .consts import LIVE_COLORS
+
+        # If it's a known color index (0-69), use the LIVE_COLORS lookup
+        if live_color in LIVE_COLORS:
+            return LIVE_COLORS[live_color]
+
+        # Otherwise, decode as packed RGB integer
+        # Live color format: 0xRRGGBB
         try:
-            # Live color mapping (from consts.py)
-            from .consts import LIVE_COLORS, DEFAULT_TRACK_COLORS
-            
-            # If it's an integer, use it as index into LIVE_COLORS
-            if isinstance(live_color, int):
-                if live_color in LIVE_COLORS:
-                    return LIVE_COLORS[live_color]
-                else:
-                    # Use modulo to wrap around available colors
-                    color_idx = live_color % len(DEFAULT_TRACK_COLORS)
-                    return DEFAULT_TRACK_COLORS[color_idx]
-            
-            # If it's already a tuple/list, return as is
-            elif isinstance(live_color, (tuple, list)) and len(live_color) >= 3:
-                return (int(live_color[0]), int(live_color[1]), int(live_color[2]))
-            
-            # Default fallback color (white)
-            else:
-                return (255, 255, 255)
-                
-        except Exception as e:
-            print(f"❌ Error converting Live color: {e}")
-            return (127, 127, 127)  # Gray fallback
-    
+            r = (live_color >> 16) & 0xFF
+            g = (live_color >> 8) & 0xFF
+            b = live_color & 0xFF
+
+            # Debug log to verify conversion (comment out after testing)
+            # print(f"COLOR_DECODE: Live_color={live_color} (0x{live_color:06X}) -> RGB({r},{g},{b})")
+
+            return (r, g, b)
+        except:
+            # Fallback to gray if something goes wrong
+            return (128, 128, 128)
+
     @staticmethod
     def get_track_default_color(track_index):
         """
-        Get default color for track by index
-        Args:
-            track_index (int): Track index
-        Returns:
-            tuple: (r, g, b) values 0-255
+        Gets a default color for a track based on its index, cycling through
+        a predefined list of colors.
         """
-        try:
-            from .consts import DEFAULT_TRACK_COLORS
-            color_idx = track_index % len(DEFAULT_TRACK_COLORS)
-            return DEFAULT_TRACK_COLORS[color_idx]
-        except:
-            return (127, 127, 127)
-    
+        from .consts import DEFAULT_TRACK_COLORS
+        return DEFAULT_TRACK_COLORS[track_index % len(DEFAULT_TRACK_COLORS)]
+
     @staticmethod
-    def get_clip_state_color(state, track_color):
+    def get_clip_state_color(state, base_rgb_color):
         """
-        Calculate clip LED color based on state and track color
-        Args:
-            state (int): Clip state (CLIP_EMPTY, CLIP_PLAYING, etc.)
-            track_color (tuple): Base track RGB color
-        Returns:
-            tuple: Final RGB color for clip LED
+        Calculates the final display color for a clip based on its state
+        (e.g., playing, stopped, recording) and its base color.
         """
-        try:
-            from .consts import CLIP_EMPTY, CLIP_PLAYING, CLIP_QUEUED, CLIP_RECORDING
-            
-            r, g, b = track_color
-            
-            if state == CLIP_EMPTY:
-                # Empty = very dim
-                return (r // 8, g // 8, b // 8)
-            elif state == CLIP_PLAYING:
-                # Playing = full brightness
-                return (r, g, b)
-            elif state == CLIP_QUEUED:
-                # Queued = pulsing bright
-                return (min(255, r + 50), min(255, g + 50), min(255, b + 50))
-            elif state == CLIP_RECORDING:
-                # Recording = red overlay
-                return (min(255, r + 100), g // 2, b // 2)
-            else:
-                # Unknown state = half brightness
-                return (r // 2, g // 2, b // 2)
-                
-        except Exception as e:
-            print(f"❌ Error calculating clip state color: {e}")
-            return (127, 127, 127)
-    
-    # ========================================
-    # NUEVOS MÉTODOS (los que ya tienes implementados)
-    # ========================================
-    
-    @staticmethod
-    def get_mixer_led_color(track_color, is_mute, is_solo, is_arm):
-        """
-        Calculate LED color for mixer channel based on state
-        Args:
-            track_color (tuple): Base track RGB color
-            is_mute (bool): Track is muted
-            is_solo (bool): Track is solo
-            is_arm (bool): Track is armed for recording
-        Returns:
-            tuple: Final RGB color for LED
-        """
-        r, g, b = track_color
-        
-        if is_mute:
-            # Muted = very dim
-            return (r // 8, g // 8, b // 8)
-        elif is_solo:
-            # Solo = bright yellow overlay
-            return (min(255, r + 100), min(255, g + 100), 0)
-        elif is_arm:
-            # Armed = red overlay
-            return (min(255, r + 100), g // 2, b // 2)
-        else:
-            # Normal = full track color
-            return (r, g, b)
-    
-    @staticmethod
-    def get_device_led_color(is_enabled, is_selected):
-        """
-        Calculate LED color for device state
-        Args:
-            is_enabled (bool): Device is enabled
-            is_selected (bool): Device is currently selected
-        Returns:
-            tuple: RGB color for device LED
-        """
-        if is_selected and is_enabled:
-            return (0, 255, 100)  # Bright green = selected & enabled
-        elif is_selected:
-            return (255, 100, 0)  # Orange = selected but disabled
-        elif is_enabled:
-            return (100, 100, 255)  # Blue = enabled but not selected
-        else:
-            return (50, 50, 50)   # Dim gray = disabled
-    
-    @staticmethod
-    def get_note_pad_color(note, current_scale, root_note, is_playing):
-        """
-        Calculate LED color for note pad based on scale and state
-        Args:
-            note (int): MIDI note number
-            current_scale (list): Scale intervals [0, 2, 4, 5, 7, 9, 11]
-            root_note (int): Root note (0-11, C=0)
-            is_playing (bool): Note is currently playing
-        Returns:
-            tuple: RGB color for note pad
-        """
-        # Check if note is in current scale
-        note_in_scale = (note - root_note) % 12 in current_scale
-        
-        if is_playing:
-            return (255, 255, 255)  # White = playing
-        elif note_in_scale:
-            return (100, 255, 100)  # Green = in scale
-        else:
-            return (50, 50, 100)    # Dim blue = out of scale
-    
-    @staticmethod
-    def get_transport_led_color(is_playing, is_recording, is_loop):
-        """
-        Calculate LED color for transport buttons
-        Args:
-            is_playing (bool): Transport is playing
-            is_recording (bool): Recording is enabled
-            is_loop (bool): Loop is enabled
-        Returns:
-            dict: Colors for each transport button
-        """
-        return {
-            'play': (0, 255, 0) if is_playing else (50, 50, 50),      # Green/dim
-            'record': (255, 0, 0) if is_recording else (50, 50, 50),  # Red/dim
-            'loop': (255, 255, 0) if is_loop else (50, 50, 50)        # Yellow/dim
+        r, g, b = base_rgb_color
+
+        state_names = {
+            0: 'EMPTY',
+            1: 'STOPPED',
+            2: 'PLAYING',
+            3: 'QUEUED',
+            4: 'RECORDING'
         }
-    
-    @staticmethod
-    def get_drum_pad_color(pad_state):
-        """
-        Calculate LED color for drum pad state
-        Args:
-            pad_state (int): 0=empty, 1=loaded, 2=active, 3=selected
-        Returns:
-            tuple: RGB color for drum pad LED
-        """
-        colors = {
-            0: (10, 10, 10),      # Empty - very dim
-            1: (100, 100, 50),    # Loaded - yellow dim
-            2: (255, 255, 100),   # Active - yellow bright  
-            3: (255, 100, 255)    # Selected - magenta bright
-        }
-        return colors.get(pad_state, (50, 50, 50))
+
+        if state == CLIP_PLAYING:
+            final_color = (r // 2, min(255, g + 150), b // 2)
+        elif state == CLIP_RECORDING:
+            final_color = (min(255, r + 150), g // 2, b // 2)
+        elif state == CLIP_QUEUED:
+            final_color = (min(255, r + 100), min(255, g + 100), b // 2)
+        elif state == CLIP_EMPTY:
+            final_color = (0, 0, 0)
+        else: # Clip exists but is stopped
+            final_color = (r, g, b)
+
+        # Log disabled to reduce verbosity - see GRID_ENCODE for full details
+        # state_name = state_names.get(state, f'UNKNOWN({state})')
+        # print(f"COLOR_STATE: State={state_name} BaseRGB({r},{g},{b}) -> FinalRGB({final_color[0]},{final_color[1]},{final_color[2]})")
+
+        return final_color

@@ -552,25 +552,31 @@ class BrowserManager:
     def handle_navigation_command(self, command, payload):
         """Handle incoming navigation commands from hardware"""
         try:
+            # Ring navigation commands should NOT be handled here
+            # They're handled by SessionRing in PushClone._route_command
+            if command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION]:
+                self.c_surface.log_message(f"⚠️ Ring command 0x{command:02X} reached BrowserManager (routing error)")
+                return
+
             if command == CMD_SELECTED_TRACK and len(payload) >= 1:
                 track_idx = payload[0]
                 if track_idx != 127:  # 127 = invalid
                     self.select_track(track_idx)
-                    
+
             elif command == CMD_SELECTED_SCENE and len(payload) >= 1:
                 scene_idx = payload[0]
                 if scene_idx != 127:  # 127 = invalid
                     self.select_scene(scene_idx)
-                    
+
             elif command == CMD_SWITCH_VIEW and len(payload) >= 1:
                 view_id = payload[0]
                 view_names = ["Session", "Arranger", "Detail", "Detail/DeviceChain"]
                 if view_id < len(view_names):
                     self.switch_view(view_names[view_id])
-                    
+
             else:
                 self.c_surface.log_message(f"❓ Unknown navigation command: 0x{command:02X}")
-                
+
         except Exception as e:
             self.c_surface.log_message(f"❌ Error handling navigation command 0x{command:02X}: {e}")
     

@@ -430,9 +430,8 @@ class SongManager:
             avg_byte = int(avg_cpu * 127)
             peak_byte = int(peak_cpu * 127)
             
-            payload = [avg_byte, peak_byte]
-            # Using a general purpose command since no specific CPU command exists
-            # Could be added to consts.py as CMD_CPU_USAGE = 0x5B
+            payload = [avg_byte & 0x7F, peak_byte & 0x7F]
+            self.c_surface._send_sysex_command(CMD_CPU_USAGE, payload)
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending CPU usage: {e}")
@@ -462,10 +461,10 @@ class SongManager:
             time_bars = int(cue_point.time) // 4
             time_beats = int(cue_point.time) % 4
             
-            payload = [cue_idx, time_bars & 0x7F, time_beats, len(name_bytes)]
-            payload.extend(list(name_bytes))
-            
-            # Could be added as CMD_CUE_POINT = 0x5C
+            payload = [cue_idx & 0x7F, time_bars & 0x7F, time_beats & 0x7F, len(name_bytes) & 0x7F]
+            payload.extend([b & 0x7F for b in name_bytes])  # Ensure 7-bit
+
+            self.c_surface._send_sysex_command(CMD_CUE_POINT, payload)
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending cue point {cue_idx}: {e}")

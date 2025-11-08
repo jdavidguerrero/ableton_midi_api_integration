@@ -19,14 +19,18 @@ class SessionRing:
         # Ring dimensions (tracks x scenes)
         self.ring_width = 4   # tracks visible
         self.ring_height = 8  # scenes visible
-        
+
         # Current ring position
         self.track_offset = 0   # Starting track index
         self.scene_offset = 0   # Starting scene index
-        
+
         # Selection tracking
         self.selected_track_index = 0
         self.selected_scene_index = 0
+
+        # Session Overview mode (Push 3 style zoom-out)
+        self.overview_mode = False
+        self.overview_zoom = 4  # Each pad represents 4x4 cells in overview
         
         # Listeners
         self._listeners = []
@@ -290,82 +294,220 @@ class SessionRing:
     # ========================================
     
     def _send_ring_position(self):
-        """Send current ring position to hardware"""
+        """Send current ring position to hardware using 14-bit encoding"""
         try:
             from .MIDIUtils import SysExEncoder
-            
-            # Temporarily clamp to 7-bit range until restart
-            track_offset_safe = min(127, self.track_offset)
-            scene_offset_safe = min(127, self.scene_offset)
-            
-            # Use simple 7-bit values for now (will be fixed after restart)
-            payload = [track_offset_safe, scene_offset_safe, self.ring_width, self.ring_height]
+
+            # Use 14-bit encoding for offsets (supports up to 16,384 tracks/scenes)
+            # MSB = upper 7 bits, LSB = lower 7 bits
+            track_offset_msb = (self.track_offset >> 7) & 0x7F
+            track_offset_lsb = self.track_offset & 0x7F
+            scene_offset_msb = (self.scene_offset >> 7) & 0x7F
+            scene_offset_lsb = self.scene_offset & 0x7F
+
+            # Payload: [track_msb, track_lsb, scene_msb, scene_lsb, width, height, overview_mode]
+            payload = [
+                track_offset_msb,
+                track_offset_lsb,
+                scene_offset_msb,
+                scene_offset_lsb,
+                self.ring_width & 0x7F,
+                self.ring_height & 0x7F,
+                1 if self.overview_mode else 0
+            ]
             self.c_surface._send_sysex_command(CMD_RING_POSITION, payload)
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending ring position: {e}")
     
     def _send_ring_clips(self):
-        """Send all clips in current ring to hardware"""
+        """Send all clips in current ring to hardware using a single grid message."""
         try:
             if not self.c_surface._is_connected:
                 return
             
-            # Send clip grid data
-            for ring_track in range(self.ring_width):
-                for ring_scene in range(self.ring_height):
-                    absolute_track = self.track_offset + ring_track
-                    absolute_scene = self.scene_offset + ring_scene
-                    
-                    # Send clip state for this position
-                    if self.c_surface.get_manager('clip'):
-                        clip_manager = self.c_surface.get_manager('clip')
-                        clip_manager.send_complete_clip_state(absolute_track, absolute_scene)
-            
-            # Also update NeoTrellis grid
-            if self.c_surface.get_manager('clip'):
-                clip_manager = self.c_surface.get_manager('clip')
+            # Get the clip manager and send the single, consolidated grid update
+            clip_manager = self.c_surface.get_manager('clip')
+            if clip_manager:
                 clip_manager._send_neotrellis_clip_grid()
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending ring clips: {e}")
     
     def _send_track_selection(self, track_index):
-        """Send track selection change to hardware"""
+        """Send track selection change to hardware with 14-bit encoding"""
         try:
             # Calculate relative position within ring
             relative_track = track_index - self.track_offset
-            if 0 <= relative_track < self.ring_width:
-                # Use 7-bit safe values
-                payload = [relative_track & 0x7F, 1]  # 1 = selected
-                self.c_surface._send_sysex_command(CMD_TRACK_SELECT, payload)
-            else:
-                # Track is outside ring - clamp to 7-bit range temporarily
-                track_safe = min(127, track_index)
-                payload = [track_safe, 0]  # 0 = outside ring
-                self.c_surface._send_sysex_command(CMD_TRACK_SELECT, payload)
+            is_in_ring = 0 <= relative_track < self.ring_width
+
+            # Use 14-bit encoding for track index
+            track_msb = (track_index >> 7) & 0x7F
+            track_lsb = track_index & 0x7F
+
+            # Payload: [track_msb, track_lsb, is_in_ring]
+            payload = [track_msb, track_lsb, 1 if is_in_ring else 0]
+            self.c_surface._send_sysex_command(CMD_TRACK_SELECT, payload)
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track selection: {e}")
     
     def _send_scene_selection(self, scene_index):
-        """Send scene selection change to hardware"""
+        """Send scene selection change to hardware with 14-bit encoding"""
         try:
             # Calculate relative position within ring
             relative_scene = scene_index - self.scene_offset
-            if 0 <= relative_scene < self.ring_height:
-                # Use 7-bit safe values
-                payload = [relative_scene & 0x7F, 1]  # 1 = selected
-                self.c_surface._send_sysex_command(CMD_SCENE_SELECT, payload)
-            else:
-                # Scene is outside ring - clamp to 7-bit range temporarily
-                scene_safe = min(127, scene_index)
-                payload = [scene_safe, 0]  # 0 = outside ring
-                self.c_surface._send_sysex_command(CMD_SCENE_SELECT, payload)
+            is_in_ring = 0 <= relative_scene < self.ring_height
+
+            # Use 14-bit encoding for scene index
+            scene_msb = (scene_index >> 7) & 0x7F
+            scene_lsb = scene_index & 0x7F
+
+            # Payload: [scene_msb, scene_lsb, is_in_ring]
+            payload = [scene_msb, scene_lsb, 1 if is_in_ring else 0]
+            self.c_surface._send_sysex_command(CMD_SCENE_SELECT, payload)
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending scene selection: {e}")
     
+    # ========================================
+    # SESSION OVERVIEW MODE (Push 3 style)
+    # ========================================
+
+    def toggle_overview_mode(self):
+        """Toggle Session Overview mode on/off"""
+        try:
+            self.overview_mode = not self.overview_mode
+            state = "enabled" if self.overview_mode else "disabled"
+            self.c_surface.log_message(f"🔍 Session Overview: {state}")
+
+            if self.overview_mode:
+                self._send_overview_grid()
+            else:
+                # Return to normal mode
+                self._send_ring_position()
+                self._send_ring_clips()
+
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error toggling overview mode: {e}")
+
+    def _send_overview_grid(self):
+        """
+        Send overview grid to hardware
+        Each pad represents multiple tracks/scenes (zoom-out view)
+
+        Example with zoom=4:
+        - Pad (0,0) represents tracks 0-3, scenes 0-3
+        - Pad (1,0) represents tracks 4-7, scenes 0-3
+        - etc.
+        """
+        try:
+            if not self.c_surface._is_connected:
+                return
+
+            # Build overview grid (4x8 pads)
+            grid_data = []
+
+            for scene_idx in range(self.ring_height):  # 8 scenes
+                for track_idx in range(self.ring_width):  # 4 tracks
+                    # Calculate absolute track/scene range this pad represents
+                    abs_track_start = track_idx * self.overview_zoom
+                    abs_track_end = abs_track_start + self.overview_zoom
+                    abs_scene_start = scene_idx * self.overview_zoom
+                    abs_scene_end = abs_scene_start + self.overview_zoom
+
+                    # Check if this region has any clips
+                    has_clips = self._count_clips_in_region(
+                        abs_track_start, abs_track_end,
+                        abs_scene_start, abs_scene_end
+                    )
+
+                    # Determine color based on clip density
+                    if has_clips == 0:
+                        # No clips - dark gray
+                        color = (20, 20, 20)
+                    elif has_clips < self.overview_zoom * self.overview_zoom // 2:
+                        # Few clips - medium gray
+                        color = (60, 60, 60)
+                    elif has_clips < self.overview_zoom * self.overview_zoom:
+                        # Many clips - bright gray
+                        color = (100, 100, 100)
+                    else:
+                        # Full - white
+                        color = (127, 127, 127)
+
+                    # Check if this region contains currently selected track/scene
+                    if (abs_track_start <= self.selected_track_index < abs_track_end and
+                        abs_scene_start <= self.selected_scene_index < abs_scene_end):
+                        # Highlight selection in blue
+                        color = (50, 100, 255)
+
+                    grid_data.extend(color)
+
+            # Send overview grid using CMD_SESSION_OVERVIEW_GRID
+            self.c_surface._send_sysex_command(CMD_SESSION_OVERVIEW_GRID, grid_data)
+
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending overview grid: {e}")
+
+    def _count_clips_in_region(self, track_start, track_end, scene_start, scene_end):
+        """Count number of clips in a region"""
+        try:
+            clip_count = 0
+
+            for track_idx in range(track_start, track_end):
+                if track_idx >= len(self.song.tracks):
+                    break
+
+                track = self.song.tracks[track_idx]
+
+                for scene_idx in range(scene_start, scene_end):
+                    if scene_idx >= len(track.clip_slots):
+                        break
+
+                    clip_slot = track.clip_slots[scene_idx]
+                    if clip_slot.has_clip:
+                        clip_count += 1
+
+            return clip_count
+
+        except Exception as e:
+            return 0
+
+    def handle_overview_pad_press(self, ring_track, ring_scene):
+        """
+        Handle pad press in overview mode
+        Zoom into the region represented by this pad
+        """
+        try:
+            # Calculate absolute position this pad represents
+            abs_track = ring_track * self.overview_zoom
+            abs_scene = ring_scene * self.overview_zoom
+
+            # Exit overview mode
+            self.overview_mode = False
+
+            # Move ring to this position
+            self.track_offset = abs_track
+            self.scene_offset = abs_scene
+
+            # Clamp to valid ranges
+            max_track_offset = max(0, len(self.song.tracks) - self.ring_width)
+            max_scene_offset = max(0, len(self.song.scenes) - self.ring_height)
+            self.track_offset = min(self.track_offset, max_track_offset)
+            self.scene_offset = min(self.scene_offset, max_scene_offset)
+
+            # Send updated state
+            self._send_ring_position()
+            self._send_ring_clips()
+
+            self.c_surface.log_message(
+                f"🔍 Zoomed to T{self.track_offset} S{self.scene_offset}"
+            )
+
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error handling overview pad: {e}")
+
     # ========================================
     # PUBLIC INTERFACE
     # ========================================
@@ -380,7 +522,11 @@ class SessionRing:
             'selected_track': self.selected_track_index,
             'selected_scene': self.selected_scene_index,
             'total_tracks': len(self.song.tracks),
-            'total_scenes': len(self.song.scenes)
+            'total_scenes': len(self.song.scenes),
+            'overview_mode': self.overview_mode,
+            'overview_zoom': self.overview_zoom,
+            'max_visible_tracks': self.ring_width * self.overview_zoom if self.overview_mode else self.ring_width,
+            'max_visible_scenes': self.ring_height * self.overview_zoom if self.overview_mode else self.ring_height
         }
     
     def get_absolute_position(self, ring_track, ring_scene):
@@ -422,21 +568,37 @@ class SessionRing:
     def handle_navigation_command(self, command, payload):
         """Handle navigation commands from hardware"""
         try:
+            self.c_surface.log_message(f"🔵 SessionRing received CMD:0x{command:02X} with {len(payload)} bytes")
+
             if command == CMD_RING_NAVIGATE and len(payload) >= 1:
                 direction_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down'}
                 direction = direction_map.get(payload[0])
+                self.c_surface.log_message(f"🔵 CMD_RING_NAVIGATE: payload[0]={payload[0]} → direction='{direction}'")
                 if direction:
                     self.navigate_ring(direction)
-            
+                else:
+                    self.c_surface.log_message(f"⚠️ Unknown direction value: {payload[0]}")
+
             elif command == CMD_RING_SELECT and len(payload) >= 2:
                 ring_track, ring_scene = payload[0], payload[1]
-                absolute_track, absolute_scene = self.get_absolute_position(ring_track, ring_scene)
-                
-                # Update Live's selection
-                if absolute_track < len(self.song.tracks):
-                    self.song.view.selected_track = self.song.tracks[absolute_track]
-                if absolute_scene < len(self.song.scenes):
-                    self.song.view.selected_scene = self.song.scenes[absolute_scene]
-                    
+
+                # Check if in overview mode
+                if self.overview_mode:
+                    # Handle overview pad press (zoom in)
+                    self.handle_overview_pad_press(ring_track, ring_scene)
+                else:
+                    # Normal mode - update selection
+                    absolute_track, absolute_scene = self.get_absolute_position(ring_track, ring_scene)
+
+                    # Update Live's selection
+                    if absolute_track < len(self.song.tracks):
+                        self.song.view.selected_track = self.song.tracks[absolute_track]
+                    if absolute_scene < len(self.song.scenes):
+                        self.song.view.selected_scene = self.song.scenes[absolute_scene]
+
+            elif command == CMD_SESSION_OVERVIEW:
+                # Toggle overview mode
+                self.toggle_overview_mode()
+
         except Exception as e:
             self.c_surface.log_message(f"❌ Error handling navigation command 0x{command:02X}: {e}")

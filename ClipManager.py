@@ -5,8 +5,7 @@ Based on Live Object Model: ClipSlot, Clip, Scene
 """
 
 from .consts import *
-from .MIDIUtils import SysExEncoder, ColorUtils
-from .MIDIUtils_Enhanced import SysExEncoderEnhanced, ColorEncoder
+from .MIDIUtils import SysExEncoder, ColorUtils, ColorEncoder
 
 class ClipManager:
     """
@@ -675,13 +674,13 @@ class ClipManager:
     def _send_clip_state(self, track_idx, scene_idx):
         """Send complete clip state to hardware"""
         try:
-            if (track_idx >= len(self.song.tracks) or 
+            if (track_idx >= len(self.song.tracks) or
                 scene_idx >= len(self.song.scenes)):
                 return
-            
+
             track = self.song.tracks[track_idx]
             clip_slot = track.clip_slots[scene_idx]
-            
+
             # Determine clip state
             if not clip_slot.has_clip:
                 state = CLIP_EMPTY
@@ -693,29 +692,30 @@ class ClipManager:
                 state = CLIP_RECORDING
             else:
                 state = CLIP_EMPTY
-            
+
             # Get color (clip color if exists, otherwise track color)
             if clip_slot.has_clip:
                 color = ColorUtils.live_color_to_rgb(clip_slot.clip.color)
             else:
                 color = ColorUtils.live_color_to_rgb(track.color)
-            
+
             # Calculate final LED color based on state
             final_color = ColorUtils.get_clip_state_color(state, color)
 
-            # Send clip state message with full RGB or compact encoding
             if self._color_mode == 'full_rgb':
-                # Use enhanced encoder for full RGB (0-255)
-                message = SysExEncoderEnhanced.encode_clip_state_full_rgb(
+                # Use the primary encoder for full 24-bit RGB color
+                message = SysExEncoder.encode_clip_state_full_rgb(
                     track_idx, scene_idx, state, final_color
                 )
             else:
-                # Use standard encoder for compact RGB (0-127)
-                message = SysExEncoder.encode_clip_state(track_idx, scene_idx, state, final_color)
+                # Use the compact encoder for 7-bit RGB color
+                message = SysExEncoder.encode_clip_state_compact(
+                    track_idx, scene_idx, state, final_color
+                )
 
             if message:
                 self.c_surface._send_midi(tuple(message))
-            
+
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending clip state T{track_idx}S{scene_idx}: {e}")
     
@@ -1055,9 +1055,6 @@ class ClipManager:
                     # Get base color
                     base_color = ColorUtils.live_color_to_rgb(clip.color)
 
-                    # Get track color as fallback
-                    track_color = ColorUtils.live_color_to_rgb(self.song.tracks[track_idx].color)
-
                     # Calculate final color with state
                     color = ColorUtils.get_clip_state_color(state, base_color)
                 else:
@@ -1067,14 +1064,26 @@ class ClipManager:
 
                 grid_data.append(color)
 
+        # LOG GRID COLORS BEFORE ENCODING
+        self.c_surface.log_message("=" * 80)
+        self.c_surface.log_message(f"GRID_COLORS: Sending {len(grid_data)} pads")
+        self.c_surface.log_message("=" * 80)
+        for pad_idx, (r, g, b) in enumerate(grid_data):
+            track = pad_idx // 8
+            scene = pad_idx % 8
+            self.c_surface.log_message(f"PAD[{pad_idx:02d}] T{track}S{scene}: RGB({r:3d},{g:3d},{b:3d})")
+        self.c_surface.log_message("=" * 80)
+
         # Use enhanced encoder for full RGB support
         if self._color_mode == 'full_rgb':
-            message = SysExEncoderEnhanced.encode_neotrellis_clip_grid_full_rgb(grid_data)
+            message = SysExEncoder.encode_grid_update_full_rgb(grid_data, logger=self.c_surface.log_message)
         else:
             message = SysExEncoder.encode_neotrellis_clip_grid(grid_data)
 
         if message:
             self.c_surface._send_midi(tuple(message))
+        else:
+            self.c_surface.log_message("GRID_UPDATE: ❌ Failed to encode grid message")
     
     # ========================================
     # MIDI CLIP NOTE MANIPULATION METHODS

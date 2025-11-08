@@ -197,6 +197,8 @@ CMD_PLUGIN_PRESET = 0xA0        # Plugin preset info (Live → Hardware)
 CMD_PLUGIN_PROGRAM = 0xA1       # Plugin program change (bidirectional)
 CMD_PLUGIN_UI = 0xA2            # Plugin UI visibility (bidirectional)
 CMD_PLUGIN_LATENCY = 0xA3       # Plugin latency info (Live → Hardware)
+CMD_CPU_USAGE = 0xA4            # CPU usage (avg, peak) (Live → Hardware)
+CMD_CUE_POINT = 0xA5            # Cue point info (Live → Hardware)
 
 # ========================================
 # CLIP STATES
