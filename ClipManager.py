@@ -388,6 +388,10 @@ class ClipManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error cleaning clip listeners: {e}")
     
+    def _cleanup_listeners(self):
+        """Proxy to public cleanup_listeners for framework compatibility"""
+        self.cleanup_listeners()
+    
     # ========================================
     # CLIP EVENT HANDLERS
     # ========================================
