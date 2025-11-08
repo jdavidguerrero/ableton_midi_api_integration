@@ -16,6 +16,8 @@ class SessionRing:
         self.c_surface = control_surface
         self.song = control_surface.song()
         
+        self.c_surface.log_message("🔧 Initializing SessionRing...")
+        
         # Ring dimensions (tracks x scenes)
         self.ring_width = 4   # tracks visible
         self.ring_height = 8  # scenes visible

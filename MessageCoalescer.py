@@ -20,6 +20,8 @@ class MessageCoalescer:
     def __init__(self, control_surface):
         self.c_surface = control_surface
         
+        self.c_surface.log_message("🔧 Initializing MessageCoalescer...")
+        
         # Performance settings
         self.target_fps = 60
         self.frame_time_ms = 1000.0 / self.target_fps  # ~16.67ms per frame

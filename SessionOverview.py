@@ -21,6 +21,8 @@ class SessionOverview:
         self.c_surface = control_surface
         self.song = control_surface.song()
 
+        self.c_surface.log_message("🔧 Initializing SessionOverview...")
+
         # Overview state
         self._is_active = False
         self._zoom_level = 1  # 1:1, 2:1, 4:1, 8:1
