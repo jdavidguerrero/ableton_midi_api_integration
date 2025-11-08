@@ -237,11 +237,11 @@ class ColorUtils:
             return LIVE_COLORS[live_color]
 
         # Otherwise, decode as packed RGB integer
-        # Live color format: 0xRRGGBB
+        # Live color format is likely BBGGRR, not RRGGBB
         try:
-            r = (live_color >> 16) & 0xFF
+            b = (live_color >> 16) & 0xFF
             g = (live_color >> 8) & 0xFF
-            b = live_color & 0xFF
+            r = live_color & 0xFF
 
             # Debug log to verify conversion (comment out after testing)
             # print(f"COLOR_DECODE: Live_color={live_color} (0x{live_color:06X}) -> RGB({r},{g},{b})")
