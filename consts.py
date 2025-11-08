@@ -59,6 +59,7 @@ CMD_TRACK_FOLD_STATE = 0x2B     # Track fold state (Live → Teensy)
 CMD_GROOVE_AMOUNT = 0x2C        # Track groove amount (bidirectional)
 CMD_GROOVE_TEMPLATE = 0x2D      # Track groove template (bidirectional)
 CMD_GROOVE_POOL = 0x2E          # Groove pool templates (Live → Teensy)
+CMD_TRACK_CROSSFADE = 0x2F      # Track crossfade assign (bidirectional)
 
 # ========================================
 # DEVICE/PLUGIN COMMANDS (0x30-0x3F)
@@ -90,11 +91,13 @@ CMD_TRANSPORT_TEMPO = 0x43      # Tempo change (Live → Teensy)
 CMD_TRANSPORT_SIGNATURE = 0x44  # Time signature (Live → Teensy)
 CMD_TRANSPORT_POSITION = 0x45   # Song position (Live → Teensy)
 CMD_TRANSPORT_METRONOME = 0x46  # Metronome state (bidirectional)
+CMD_METRONOME = 0x46            # Alias for CMD_TRANSPORT_METRONOME (backward compatibility)
 CMD_TRANSPORT_OVERDUB = 0x47    # Overdub state (bidirectional)
 CMD_TRANSPORT_PUNCH = 0x48      # Punch in/out state (bidirectional)
 CMD_RECORD_QUANTIZATION = 0x49  # Record quantization setting (bidirectional)
 CMD_SESSION_RECORD = 0x4A       # Session record state (bidirectional)
 CMD_AUTOMATION_RECORD = 0x4B    # Automation record state (bidirectional)
+CMD_ARRANGEMENT_RECORD = 0x4B   # Alias for arrangement overdub (backward compatibility)
 CMD_RE_ENABLE_AUTOMATION = 0x4C # Re-enable automation (Teensy → Live)
 CMD_BACK_TO_ARRANGER = 0x4D     # Back to arranger (Teensy → Live)
 CMD_UNDO = 0x4E                 # Undo action (Teensy → Live)
@@ -118,11 +121,34 @@ CMD_STEP_EDIT_PARAMS = 0x5B     # Step edit parameters (bidirectional)
 CMD_STEP_SEQUENCER_INFO = 0x5C  # Sequencer info (Live → Teensy)
 CMD_STEP_CLEAR_ALL = 0x5D       # Clear all notes in page (Teensy → Live)
 CMD_STEP_COPY_PAGE = 0x5E       # Copy page (Teensy → Live)
+CMD_LOOP_MARKERS = 0x5F         # Loop markers (start/end) (bidirectional)
 
-# GRID COMMANDS - Essential for 8x4 matrix
+# ========================================
+# GRID COMMANDS (0x80-0x8F) - Essential for 8x4 matrix
+# ========================================
 CMD_GRID_UPDATE = 0x80          # Full 8x4 grid color update (Live → Hardware)
-CMD_GRID_SINGLE_PAD = 0x81      # Single pad color (Live → Hardware)  
+CMD_GRID_SINGLE_PAD = 0x81      # Single pad color (Live → Hardware)
 CMD_GRID_PAD_PRESS = 0x82       # Pad press/release (Hardware → Live)
+
+# Device chain info (rack devices)
+CMD_DEVICE_CHAIN = 0x83         # Chain info/update (Live → Hardware)
+
+# ========================================
+# STREAMING DATA COMMANDS (0x90-0x9F)
+# ========================================
+CMD_TRACK_METER = 0x90          # Track output meter level (Live → Hardware, throttled 20Hz)
+CMD_TRACK_CUE_VOLUME = 0x91     # Track cue/pre-listen volume (bidirectional)
+CMD_CLIP_PLAYING_POSITION = 0x92 # Clip playing position (Live → Hardware, throttled 20Hz)
+CMD_CLIP_LOOP_START = 0x93      # Clip loop start position (bidirectional)
+CMD_CLIP_LOOP_END = 0x94        # Clip loop end position (bidirectional)
+CMD_CLIP_LENGTH = 0x95          # Clip length in beats (Live → Hardware)
+CMD_CLIP_IS_RECORDING = 0x96    # ClipSlot recording state (Live → Hardware)
+
+# Drum rack specific
+CMD_DRUM_PAD_STATE = 0x97       # Drum pad state (Live → Hardware)
+
+# Tempo nudge
+CMD_NUDGE = 0x98                # Tempo nudge up/down (Hardware → Live)
 
 # ========================================
 # SYSTEM/NAVIGATION COMMANDS (0x60-0x6F)
@@ -163,6 +189,14 @@ CMD_CLIP_COPY_RESULT = 0x7C     # Copy result
 CMD_CLIP_PASTE_RESULT = 0x7D    # Paste result
 CMD_CAPTURE_MIDI = 0x7E         # Capture MIDI (Hardware → Live)
 CMD_QUANTIZE_NOTES = 0x7F       # Quantize notes (Hardware → Live)
+
+# ========================================
+# PLUGIN-SPECIFIC COMMANDS (0xA0-0xAF)
+# ========================================
+CMD_PLUGIN_PRESET = 0xA0        # Plugin preset info (Live → Hardware)
+CMD_PLUGIN_PROGRAM = 0xA1       # Plugin program change (bidirectional)
+CMD_PLUGIN_UI = 0xA2            # Plugin UI visibility (bidirectional)
+CMD_PLUGIN_LATENCY = 0xA3       # Plugin latency info (Live → Hardware)
 
 # ========================================
 # CLIP STATES

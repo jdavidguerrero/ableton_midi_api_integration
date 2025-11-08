@@ -306,15 +306,14 @@ class TransportManager:
             end_bar = int(loop_end) // beats_per_bar
             end_beat = int(loop_end) % beats_per_bar
             
-            # Send loop markers (could use separate commands or combine)
+            # Send loop markers
             payload = [
                 start_bar & 0x7F,
                 start_beat & 0x7F,
                 end_bar & 0x7F,
                 end_beat & 0x7F
             ]
-            # Using transport position command for simplicity
-            # Could add CMD_LOOP_MARKERS = 0x5B to consts.py
+            self.c_surface._send_sysex_command(CMD_LOOP_MARKERS, payload)
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending loop markers: {e}")
@@ -323,9 +322,7 @@ class TransportManager:
         """Send arrangement record state to hardware"""
         try:
             payload = [1 if is_recording else 0]
-            # Could add CMD_ARRANGEMENT_RECORD = 0x5C to consts.py
-            # For now, reuse general transport record
-            self.c_surface._send_sysex_command(CMD_TRANSPORT_RECORD, payload)
+            self.c_surface._send_sysex_command(CMD_ARRANGEMENT_RECORD, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending arrangement record: {e}")
     
@@ -342,7 +339,7 @@ class TransportManager:
         try:
             direction_byte = 1 if direction == 'up' else 0
             payload = [direction_byte]
-            # Could add CMD_NUDGE = 0x5D to consts.py
+            self.c_surface._send_sysex_command(CMD_NUDGE, payload)
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending nudge {direction}: {e}")

@@ -17,6 +17,7 @@ from .AutomationManager import AutomationManager
 from .GroovePoolManager import GroovePoolManager
 from .StepSequencerManager import StepSequencerManager
 from .SessionRing import SessionRing
+from .SessionOverview import SessionOverview
 from .MessageCoalescer import MessageCoalescer
 
 class PushClone(ControlSurface):
@@ -108,7 +109,10 @@ class PushClone(ControlSurface):
             
             # Initialize Session Ring
             self._session_ring = SessionRing(self)
-            
+
+            # Initialize Session Overview (enhanced)
+            self._session_overview = SessionOverview(self)
+
             # Initialize Message Coalescer for performance
             self._message_coalescer = MessageCoalescer(self)
             
@@ -1042,61 +1046,29 @@ class PushClone(ControlSurface):
             return False
     
     def toggle_session_overview(self):
-        """Toggle session overview mode"""
+        """Toggle enhanced session overview mode"""
         try:
-            self._overview_mode = not self._overview_mode
-            
-            self.log_message(f"🔍 Session overview: {'ON' if self._overview_mode else 'OFF'}")
-            
-            # Send overview state to hardware
-            self._send_sysex_command(CMD_SESSION_OVERVIEW, [1 if self._overview_mode else 0])
-            
-            if self._overview_mode:
-                self._send_session_overview()
+            if self._session_overview:
+                self._session_overview.toggle()
+                self._overview_mode = self._session_overview._is_active
+
+                if not self._overview_mode:
+                    # Return to normal session view
+                    if self._session_ring:
+                        self._session_ring.send_complete_state()
             else:
-                # Return to normal session view
-                if self._session_ring:
-                    self._session_ring.send_complete_state()
-            
+                self.log_message("⚠️ SessionOverview manager not available")
+
         except Exception as e:
             self.log_message(f"❌ Error toggling overview: {e}")
-    
-    def _send_session_overview(self):
-        """Send session overview grid data"""
+
+    def cycle_overview_zoom(self):
+        """Cycle through overview zoom levels"""
         try:
-            if not self._is_connected:
-                return
-            
-            # Create overview grid (8x8 representing larger session area)
-            overview_grid = []
-            tracks = self.song().tracks
-            scenes = self.song().scenes
-            
-            for scene_idx in range(8):
-                for track_idx in range(8):
-                    if (track_idx < len(tracks) and scene_idx < len(scenes)):
-                        clip_slot = tracks[track_idx].clip_slots[scene_idx]
-                        
-                        # Overview colors: simplified clip states
-                        if clip_slot.has_clip:
-                            if clip_slot.is_playing:
-                                color = 3  # Playing - bright
-                            elif clip_slot.is_triggered:
-                                color = 2  # Queued - medium
-                            else:
-                                color = 1  # Has clip - dim
-                        else:
-                            color = 0  # Empty
-                    else:
-                        color = 0  # Outside session bounds
-                    
-                    overview_grid.append(color)
-            
-            # Send overview grid
-            self._send_sysex_command(CMD_SESSION_OVERVIEW_GRID, overview_grid)
-            
+            if self._session_overview:
+                self._session_overview.cycle_zoom()
         except Exception as e:
-            self.log_message(f"❌ Error sending session overview: {e}")
+            self.log_message(f"❌ Error cycling zoom: {e}")
     
     def handle_session_navigation_command(self, command, payload):
         """Handle session navigation commands"""
@@ -1104,10 +1076,41 @@ class PushClone(ControlSurface):
             if command == CMD_SESSION_MODE and len(payload) >= 1:
                 mode = "session_screen" if payload[0] == 0 else "session_pad"
                 self.switch_session_mode(mode)
-                
+
             elif command == CMD_SESSION_OVERVIEW:
-                self.toggle_session_overview()
-                
+                if len(payload) >= 1:
+                    # Payload[0]: 0=toggle, 1=zoom_in, 2=zoom_out, 3=cycle_zoom
+                    action = payload[0]
+                    if action == 0:
+                        self.toggle_session_overview()
+                    elif action == 1 and self._session_overview:
+                        # Zoom in (decrease zoom level)
+                        current = self._session_overview._zoom_level
+                        if current > 1:
+                            self._session_overview.set_zoom_level(current // 2)
+                    elif action == 2 and self._session_overview:
+                        # Zoom out (increase zoom level)
+                        current = self._session_overview._zoom_level
+                        if current < 8:
+                            self._session_overview.set_zoom_level(current * 2)
+                    elif action == 3:
+                        self.cycle_overview_zoom()
+
+                    # Payload[1-2]: Navigation direction (if provided)
+                    if len(payload) >= 2:
+                        direction_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down'}
+                        direction = direction_map.get(payload[1])
+                        if direction and self._session_overview:
+                            self._session_overview.navigate_overview(direction)
+
+                    # Payload[3-4]: Jump to position (pad x, pad y)
+                    if len(payload) >= 4 and self._session_overview:
+                        pad_x, pad_y = payload[2], payload[3]
+                        self._session_overview.jump_to_overview_position(pad_x, pad_y)
+                else:
+                    # Legacy: simple toggle
+                    self.toggle_session_overview()
+
             elif command == CMD_CLIP_DUPLICATE and len(payload) >= 4:
                 src_track, src_scene, dst_track, dst_scene = payload[0], payload[1], payload[2], payload[3]
                 self.duplicate_clip(src_track, src_scene, dst_track, dst_scene)
@@ -1294,6 +1297,8 @@ class PushClone(ControlSurface):
         """Get specific manager instance"""
         if manager_name == 'session_ring':
             return self._session_ring
+        elif manager_name == 'session_overview':
+            return self._session_overview
         return self._managers.get(manager_name)
     
     def get_connection_state(self):

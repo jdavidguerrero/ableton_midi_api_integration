@@ -6,6 +6,7 @@ Based on Live Object Model: ClipSlot, Clip, Scene
 
 from .consts import *
 from .MIDIUtils import SysExEncoder, ColorUtils
+from .MIDIUtils_Enhanced import SysExEncoderEnhanced, ColorEncoder
 
 class ClipManager:
     """
@@ -19,6 +20,15 @@ class ClipManager:
         self._clip_listeners = {}  # (track_idx, scene_idx): [listeners]
         self._scene_listeners = {}  # scene_idx: [listeners]
         self._is_active = False
+
+        # Color encoding mode: 'full_rgb' (14-bit) or 'compact' (7-bit)
+        # NeoTrellis M4 supports 24-bit color, so use 'full_rgb'!
+        self._color_mode = 'full_rgb'  # Change to 'compact' for bandwidth savings
+
+        # Playing position throttling (prevent MIDI saturation)
+        self._position_values = {}     # (track_idx, scene_idx): current_position
+        self._position_last_sent = {}  # (track_idx, scene_idx): timestamp_ms
+        self._position_interval_ms = 50 # 20Hz update rate (similar to metering)
         
     def setup_listeners(self, max_tracks=8, max_scenes=8):
         """Setup clip and scene listeners"""
@@ -81,7 +91,13 @@ class ClipManager:
                 stop_button_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_stop_button_changed(t_idx, s_idx)
                 clip_slot.add_has_stop_button_listener(stop_button_listener)
                 listeners.append(('has_stop_button', stop_button_listener))
-            
+
+            # Recording state (critical for visual feedback)
+            if hasattr(clip_slot, 'is_recording'):
+                recording_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_recording_changed(t_idx, s_idx)
+                clip_slot.add_is_recording_listener(recording_listener)
+                listeners.append(('is_recording', recording_listener))
+
             # === CLIP LISTENERS (if clip exists) ===
             if clip_slot.has_clip:
                 self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
@@ -146,7 +162,47 @@ class ClipManager:
                 except Exception as e:
                     # Some clips may not support end marker listeners
                     pass
-                
+
+            # Loop start position
+            if hasattr(clip, 'loop_start'):
+                loop_start_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_loop_start_changed(t_idx, s_idx)
+                try:
+                    clip.add_loop_start_listener(loop_start_listener)
+                    listeners.append(('loop_start', loop_start_listener))
+                except Exception as e:
+                    pass
+
+            # Loop end position
+            if hasattr(clip, 'loop_end'):
+                loop_end_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_loop_end_changed(t_idx, s_idx)
+                try:
+                    clip.add_loop_end_listener(loop_end_listener)
+                    listeners.append(('loop_end', loop_end_listener))
+                except Exception as e:
+                    pass
+
+            # Clip length
+            if hasattr(clip, 'length'):
+                length_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_length_changed(t_idx, s_idx)
+                try:
+                    clip.add_length_listener(length_listener)
+                    listeners.append(('length', length_listener))
+                except Exception as e:
+                    pass
+
+            # Playing position (high frequency - requires throttling)
+            if hasattr(clip, 'playing_position'):
+                position_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_playing_position_changed(t_idx, s_idx)
+                try:
+                    clip.add_playing_position_listener(position_listener)
+                    listeners.append(('playing_position', position_listener))
+                    # Initialize throttling variables
+                    clip_key = (track_idx, scene_idx)
+                    self._position_values[clip_key] = 0.0
+                    self._position_last_sent[clip_key] = 0
+                except Exception as e:
+                    pass
+
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting up clip content listeners T{track_idx}S{scene_idx}: {e}")
     
@@ -275,6 +331,12 @@ class ClipManager:
                                 clip_slot.remove_has_clip_listener(listener_func)
                             elif listener_type == 'playing_status':
                                 clip_slot.remove_playing_status_listener(listener_func)
+                            elif listener_type == 'fired_slot':
+                                clip_slot.remove_fired_slot_listener(listener_func)
+                            elif listener_type == 'has_stop_button':
+                                clip_slot.remove_has_stop_button_listener(listener_func)
+                            elif listener_type == 'is_recording':
+                                clip_slot.remove_is_recording_listener(listener_func)
                             elif clip_slot.has_clip:
                                 clip = clip_slot.clip
                                 if listener_type == 'name':
@@ -292,6 +354,14 @@ class ClipManager:
                                     clip.remove_start_marker_listener(listener_func)
                                 elif listener_type == 'end_marker':
                                     clip.remove_end_marker_listener(listener_func)
+                                elif listener_type == 'loop_start':
+                                    clip.remove_loop_start_listener(listener_func)
+                                elif listener_type == 'loop_end':
+                                    clip.remove_loop_end_listener(listener_func)
+                                elif listener_type == 'length':
+                                    clip.remove_length_listener(listener_func)
+                                elif listener_type == 'playing_position':
+                                    clip.remove_playing_position_listener(listener_func)
                         except:
                             pass  # Ignore if already removed
             
@@ -438,7 +508,74 @@ class ClipManager:
             end_marker = clip.end_marker if hasattr(clip, 'end_marker') else 0.0
             self.c_surface.log_message(f"⏩ Clip T{track_idx}S{scene_idx} end: {end_marker:.2f}")
             self._send_clip_end_marker(track_idx, scene_idx, end_marker)
-    
+
+    def _on_clip_recording_changed(self, track_idx, scene_idx):
+        """ClipSlot recording state changed (critical for visual feedback)"""
+        if self.c_surface._is_connected:
+            try:
+                clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
+                is_recording = clip_slot.is_recording if hasattr(clip_slot, 'is_recording') else False
+                self.c_surface.log_message(f"⏺️ Clip T{track_idx}S{scene_idx} recording: {is_recording}")
+                self._send_clip_recording_state(track_idx, scene_idx, is_recording)
+            except Exception as e:
+                self.c_surface.log_message(f"❌ Error in recording handler T{track_idx}S{scene_idx}: {e}")
+
+    def _on_clip_loop_start_changed(self, track_idx, scene_idx):
+        """Clip loop start position changed"""
+        if self.c_surface._is_connected and self._clip_exists(track_idx, scene_idx):
+            clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
+            loop_start = clip.loop_start if hasattr(clip, 'loop_start') else 0.0
+            self.c_surface.log_message(f"🔁 Clip T{track_idx}S{scene_idx} loop start: {loop_start:.2f}")
+            self._send_clip_loop_start(track_idx, scene_idx, loop_start)
+
+    def _on_clip_loop_end_changed(self, track_idx, scene_idx):
+        """Clip loop end position changed"""
+        if self.c_surface._is_connected and self._clip_exists(track_idx, scene_idx):
+            clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
+            loop_end = clip.loop_end if hasattr(clip, 'loop_end') else 0.0
+            self.c_surface.log_message(f"🔁 Clip T{track_idx}S{scene_idx} loop end: {loop_end:.2f}")
+            self._send_clip_loop_end(track_idx, scene_idx, loop_end)
+
+    def _on_clip_length_changed(self, track_idx, scene_idx):
+        """Clip length changed"""
+        if self.c_surface._is_connected and self._clip_exists(track_idx, scene_idx):
+            clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
+            length = clip.length if hasattr(clip, 'length') else 0.0
+            self.c_surface.log_message(f"📏 Clip T{track_idx}S{scene_idx} length: {length:.2f} beats")
+            self._send_clip_length(track_idx, scene_idx, length)
+
+    def _on_clip_playing_position_changed(self, track_idx, scene_idx):
+        """Clip playing position changed (high frequency - with throttling)"""
+        if not self.c_surface._is_connected or not self._clip_exists(track_idx, scene_idx):
+            return
+
+        try:
+            import time
+            clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
+            current_time_ms = int(time.time() * 1000)
+
+            # Get current playing position (0.0 to clip.length)
+            position = clip.playing_position if hasattr(clip, 'playing_position') else 0.0
+
+            clip_key = (track_idx, scene_idx)
+            if clip_key not in self._position_values:
+                self._position_values[clip_key] = position
+                self._position_last_sent[clip_key] = 0
+
+            # Store latest position (no peak-hold needed, just latest value)
+            self._position_values[clip_key] = position
+
+            # Check if throttle interval has elapsed (50ms = 20Hz)
+            time_since_last = current_time_ms - self._position_last_sent[clip_key]
+            if time_since_last >= self._position_interval_ms:
+                # Send the latest position
+                self._send_clip_playing_position(track_idx, scene_idx, position)
+                self._position_last_sent[clip_key] = current_time_ms
+
+        except Exception as e:
+            # Don't log position errors (too verbose)
+            pass
+
     # ========================================
     # SAMPLE CLASS EVENT HANDLERS
     # ========================================
@@ -565,9 +702,17 @@ class ClipManager:
             
             # Calculate final LED color based on state
             final_color = ColorUtils.get_clip_state_color(state, color)
-            
-            # Send clip state message
-            message = SysExEncoder.encode_clip_state(track_idx, scene_idx, state, final_color)
+
+            # Send clip state message with full RGB or compact encoding
+            if self._color_mode == 'full_rgb':
+                # Use enhanced encoder for full RGB (0-255)
+                message = SysExEncoderEnhanced.encode_clip_state_full_rgb(
+                    track_idx, scene_idx, state, final_color
+                )
+            else:
+                # Use standard encoder for compact RGB (0-127)
+                message = SysExEncoder.encode_clip_state(track_idx, scene_idx, state, final_color)
+
             if message:
                 self.c_surface._send_midi(tuple(message))
             
@@ -643,7 +788,100 @@ class ClipManager:
             self.c_surface._send_sysex_command(CMD_CLIP_END, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending clip end T{track_idx}S{scene_idx}: {e}")
-    
+
+    def _send_clip_recording_state(self, track_idx, scene_idx, is_recording):
+        """
+        Send clip recording state to hardware (critical for visual feedback)
+
+        Args:
+            track_idx (int): Track index
+            scene_idx (int): Scene index
+            is_recording (bool): Recording state
+        """
+        try:
+            recording_byte = 1 if is_recording else 0
+            payload = [track_idx, scene_idx, recording_byte]
+            self.c_surface._send_sysex_command(CMD_CLIP_IS_RECORDING, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending recording state T{track_idx}S{scene_idx}: {e}")
+
+    def _send_clip_loop_start(self, track_idx, scene_idx, loop_start):
+        """
+        Send clip loop start position to hardware
+
+        Args:
+            track_idx (int): Track index
+            scene_idx (int): Scene index
+            loop_start (float): Loop start position in beats
+        """
+        try:
+            # Encode as beats + fraction (similar to start/end markers)
+            loop_start_beats = max(0, min(127, int(loop_start) & 0x7F))
+            loop_start_fraction = max(0, min(127, int((loop_start - int(loop_start)) * 127) & 0x7F))
+
+            payload = [track_idx, scene_idx, loop_start_beats, loop_start_fraction]
+            self.c_surface._send_sysex_command(CMD_CLIP_LOOP_START, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending loop start T{track_idx}S{scene_idx}: {e}")
+
+    def _send_clip_loop_end(self, track_idx, scene_idx, loop_end):
+        """
+        Send clip loop end position to hardware
+
+        Args:
+            track_idx (int): Track index
+            scene_idx (int): Scene index
+            loop_end (float): Loop end position in beats
+        """
+        try:
+            # Encode as beats + fraction
+            loop_end_beats = max(0, min(127, int(loop_end) & 0x7F))
+            loop_end_fraction = max(0, min(127, int((loop_end - int(loop_end)) * 127) & 0x7F))
+
+            payload = [track_idx, scene_idx, loop_end_beats, loop_end_fraction]
+            self.c_surface._send_sysex_command(CMD_CLIP_LOOP_END, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending loop end T{track_idx}S{scene_idx}: {e}")
+
+    def _send_clip_length(self, track_idx, scene_idx, length):
+        """
+        Send clip length to hardware
+
+        Args:
+            track_idx (int): Track index
+            scene_idx (int): Scene index
+            length (float): Clip length in beats
+        """
+        try:
+            # Encode as beats + fraction
+            length_beats = max(0, min(127, int(length) & 0x7F))
+            length_fraction = max(0, min(127, int((length - int(length)) * 127) & 0x7F))
+
+            payload = [track_idx, scene_idx, length_beats, length_fraction]
+            self.c_surface._send_sysex_command(CMD_CLIP_LENGTH, payload)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error sending length T{track_idx}S{scene_idx}: {e}")
+
+    def _send_clip_playing_position(self, track_idx, scene_idx, position):
+        """
+        Send clip playing position to hardware (throttled to 20Hz)
+
+        Args:
+            track_idx (int): Track index
+            scene_idx (int): Scene index
+            position (float): Playing position in beats (0.0 to clip.length)
+        """
+        try:
+            # Encode as beats + fraction (for precise position tracking)
+            position_beats = max(0, min(127, int(position) & 0x7F))
+            position_fraction = max(0, min(127, int((position - int(position)) * 127) & 0x7F))
+
+            payload = [track_idx, scene_idx, position_beats, position_fraction]
+            self.c_surface._send_sysex_command(CMD_CLIP_PLAYING_POSITION, payload)
+        except Exception as e:
+            # Don't log position errors (too verbose for high-frequency data)
+            pass
+
     # ========================================
     # SAMPLE CLASS SEND METHODS
     # ========================================
@@ -790,7 +1028,7 @@ class ClipManager:
             self.c_surface.log_message(f"❌ Error sending scene triggered S{scene_idx}: {e}")
 
     def _send_neotrellis_clip_grid(self):
-        """Send the colors of all clips in the 4x8 grid to the NeoTrellis."""
+        """Send the colors of all clips in the 4x8 grid to the NeoTrellis with FULL RGB."""
         if not self.c_surface._is_connected:
             return
 
@@ -798,12 +1036,43 @@ class ClipManager:
         for track_idx in range(4): # 4 tracks (rows)
             for scene_idx in range(8): # 8 scenes (cols)
                 color = (0, 0, 0) # Default to black
+
+                # Get clip or track color
                 if self._clip_exists(track_idx, scene_idx):
-                    clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
-                    color = ColorUtils.live_color_to_rgb(clip.color)
+                    clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
+                    clip = clip_slot.clip
+
+                    # Determine clip state
+                    if clip_slot.is_playing:
+                        state = CLIP_PLAYING
+                    elif clip_slot.is_triggered:
+                        state = CLIP_QUEUED
+                    elif hasattr(clip_slot, 'is_recording') and clip_slot.is_recording:
+                        state = CLIP_RECORDING
+                    else:
+                        state = 1  # Has clip but not playing
+
+                    # Get base color
+                    base_color = ColorUtils.live_color_to_rgb(clip.color)
+
+                    # Get track color as fallback
+                    track_color = ColorUtils.live_color_to_rgb(self.song.tracks[track_idx].color)
+
+                    # Calculate final color with state
+                    color = ColorUtils.get_clip_state_color(state, base_color)
+                else:
+                    # Empty slot - use dim track color
+                    track_color = ColorUtils.live_color_to_rgb(self.song.tracks[track_idx].color)
+                    color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
+
                 grid_data.append(color)
-        
-        message = SysExEncoder.encode_neotrellis_clip_grid(grid_data)
+
+        # Use enhanced encoder for full RGB support
+        if self._color_mode == 'full_rgb':
+            message = SysExEncoderEnhanced.encode_neotrellis_clip_grid_full_rgb(grid_data)
+        else:
+            message = SysExEncoder.encode_neotrellis_clip_grid(grid_data)
+
         if message:
             self.c_surface._send_midi(tuple(message))
     
@@ -1238,27 +1507,45 @@ class ClipManager:
         try:
             # Send clip state
             self._send_clip_state(track_idx, scene_idx)
-            
+
+            # Send ClipSlot recording state (important for visual feedback)
+            clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
+            if hasattr(clip_slot, 'is_recording'):
+                self._send_clip_recording_state(track_idx, scene_idx, clip_slot.is_recording)
+
             # Send additional clip info if clip exists
             if self._clip_exists(track_idx, scene_idx):
                 clip = self.song.tracks[track_idx].clip_slots[scene_idx].clip
-                
+
                 self._send_clip_name(track_idx, scene_idx, clip.name)
-                
+
                 if hasattr(clip, 'looping'):
                     self._send_clip_loop_state(track_idx, scene_idx, clip.looping)
-                
+
                 if hasattr(clip, 'muted'):
                     self._send_clip_muted_state(track_idx, scene_idx, clip.muted)
-                
+
+                # New clip properties
+                if hasattr(clip, 'loop_start'):
+                    self._send_clip_loop_start(track_idx, scene_idx, clip.loop_start)
+
+                if hasattr(clip, 'loop_end'):
+                    self._send_clip_loop_end(track_idx, scene_idx, clip.loop_end)
+
+                if hasattr(clip, 'length'):
+                    self._send_clip_length(track_idx, scene_idx, clip.length)
+
+                # Note: playing_position is NOT sent in initial state
+                # because it's high-frequency streaming data
+
                 # Audio clip specific properties
                 if self._is_audio_clip(clip):
                     if hasattr(clip, 'warping'):
                         self._send_clip_warp_state(track_idx, scene_idx, clip.warping)
-                    
+
                     if hasattr(clip, 'start_marker'):
                         self._send_clip_start_marker(track_idx, scene_idx, clip.start_marker)
-                    
+
                     if hasattr(clip, 'end_marker'):
                         self._send_clip_end_marker(track_idx, scene_idx, clip.end_marker)
             
