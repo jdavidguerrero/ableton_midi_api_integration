@@ -19,6 +19,8 @@ class TransportManager:
         self._listeners = []
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing TransportManager...")
+        
         # Transport state tracking
         self._last_beat = -1
         self._last_bar = -1

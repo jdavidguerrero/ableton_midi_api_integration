@@ -20,6 +20,8 @@ class ClipManager:
         self._scene_listeners = {}  # scene_idx: [listeners]
         self._is_active = False
 
+        self.c_surface.log_message("🔧 Initializing ClipManager...")
+
         # Color encoding mode: 'full_rgb' (14-bit) or 'compact' (7-bit)
         # NeoTrellis M4 supports 24-bit color, so use 'full_rgb'!
         self._color_mode = 'full_rgb'  # Change to 'compact' for bandwidth savings
@@ -28,7 +30,7 @@ class ClipManager:
         self._position_values = {}     # (track_idx, scene_idx): current_position
         self._position_last_sent = {}  # (track_idx, scene_idx): timestamp_ms
         self._position_interval_ms = 50 # 20Hz update rate (similar to metering)
-        
+    
     def setup_listeners(self, max_tracks=8, max_scenes=8):
         """Setup clip and scene listeners"""
         if self._is_active:
@@ -92,7 +94,7 @@ class ClipManager:
                 listeners.append(('has_stop_button', stop_button_listener))
 
             # Recording state (critical for visual feedback)
-            if hasattr(clip_slot, 'is_recording'):
+            if hasattr(clip_slot, 'add_is_recording_listener'):
                 recording_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_recording_changed(t_idx, s_idx)
                 clip_slot.add_is_recording_listener(recording_listener)
                 listeners.append(('is_recording', recording_listener))

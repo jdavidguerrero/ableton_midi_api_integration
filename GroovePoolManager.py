@@ -19,6 +19,8 @@ class GroovePoolManager:
         self._listeners = []
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing GroovePoolManager...")
+        
         # Groove pool state tracking
         self._groove_templates = {}
         self._selected_groove_idx = -1

@@ -21,6 +21,8 @@ class DeviceManager:
         self._drum_listeners = {}    # (track_idx, device_idx): [drum_listeners]
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing DeviceManager...")
+        
         # Device view state with enhanced parameter paging
         self._current_track = 0
         self._current_device = 0

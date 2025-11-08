@@ -17,6 +17,8 @@ class StepSequencerManager:
         self.song = control_surface.song()
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing StepSequencerManager...")
+        
         # Enhanced step sequencer state
         self._notes = [] # List of notes in the sequence
         self._resolution = 16 # 1/16 notes by default (higher resolution)

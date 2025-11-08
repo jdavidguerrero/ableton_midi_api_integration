@@ -20,6 +20,8 @@ class AutomationManager:
         self._listeners = []
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing AutomationManager...")
+        
         # Automation state tracking
         self._automation_recording = False
         

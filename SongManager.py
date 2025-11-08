@@ -20,6 +20,8 @@ class SongManager:
         self._listeners = []
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing SongManager...")
+        
         # CPU monitoring throttling
         self._last_cpu_log_time = 0
         self._cpu_log_interval = 5.0  # Log CPU only every 5 seconds

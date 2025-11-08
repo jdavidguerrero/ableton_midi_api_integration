@@ -19,6 +19,8 @@ class TrackManager:
         self._track_listeners = {}  # track_idx: [listeners]
         self._is_active = False
 
+        self.c_surface.log_message("🔧 Initializing TrackManager...")
+
         # Metering throttling (prevent MIDI saturation)
         self._meter_values = {}      # track_idx: current_peak
         self._meter_last_sent = {}   # track_idx: timestamp_ms
@@ -148,7 +150,7 @@ class TrackManager:
                 listeners.append(('crossfade_assign', crossfade_listener))
 
             # Cue Volume (pre-listen/headphone monitoring)
-            if hasattr(mixer, 'cue_volume'):
+            if hasattr(mixer, 'cue_volume') and track == self.song.master_track:
                 cue_listener = lambda idx=track_idx: self._on_track_cue_volume_changed(idx)
                 mixer.cue_volume.add_value_listener(cue_listener)
                 listeners.append(('cue_volume', cue_listener))

@@ -20,6 +20,8 @@ class BrowserManager:
         self._listeners = []
         self._is_active = False
         
+        self.c_surface.log_message("🔧 Initializing BrowserManager...")
+        
         # Selection state tracking
         self._selected_track_idx = 0
         self._selected_scene_idx = 0
