@@ -157,6 +157,9 @@ class SessionRing:
         self.track_offset = max(0, min(self.track_offset, max_track_offset))
         self.scene_offset = max(0, min(self.scene_offset, max_scene_offset))
         
+        # Set the session highlight
+        self.c_surface.set_session_highlight(self.track_offset, self.scene_offset, self.ring_width, self.ring_height)
+        
         # Send ring update if position changed
         if (self.track_offset != old_track_offset or 
             self.scene_offset != old_scene_offset):
