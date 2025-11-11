@@ -75,13 +75,8 @@ class SysExEncoder:
         length, payload, and checksum.
         """
         try:
-            command_value = int(command)
-            if not (0 <= command_value <= 0xFF):
-                print(f"❌ Invalid SysEx command value: {command}")
-                return None
-
             message = list(SYSEX_HEADER)
-            message.append(command_value)
+            message.append(command & 0x7F)
             
             sequence = SysExEncoder._get_next_sequence()
             message.append(sequence)
@@ -99,7 +94,7 @@ class SysExEncoder:
                         return None
                     message.append(byte)
             
-            checksum = command_value ^ sequence
+            checksum = (command & 0x7F) ^ sequence
             if payload:
                 for byte in payload:
                     checksum ^= byte

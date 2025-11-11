@@ -62,7 +62,10 @@ class PushClone(ControlSurface):
         self._message_coalescer = None
         self._session = None
         self._initialize_managers()
-        
+        self._handshake_retry_active = False
+        self._handshake_confirmed = False
+        self._handshake_retry_interval_ticks = 60  # ~1 second at 60fps
+
         # Current selections and state
         self._current_track = 0
         self._current_device = 0
@@ -83,7 +86,7 @@ class PushClone(ControlSurface):
         self._clipboard = None  # For clip copy/paste
         
         with self.component_guard():
-            self.log_message("🚀 PushClone Orchestrator Loading...")
+            self.log_message(f"🚀 PushClone Orchestrator v{SCRIPT_VERSION} Loading...")
             self.show_message("PushClone: Initializing Complete API Coverage...")
             
             # Setup session component
@@ -96,9 +99,10 @@ class PushClone(ControlSurface):
             self._setup_all_managers()
             
             # Send handshake
-            self._send_handshake()
+            self._send_handshake(refresh=True)
+            self._schedule_handshake_retry(initial=True)
             
-            self.log_message("✅ PushClone Orchestrator Ready - Full Live API Coverage Active")
+            self.log_message(f"✅ PushClone Orchestrator Ready (v{SCRIPT_VERSION}) - Full Live API Coverage Active")
 
     def set_session_highlight(self, start_track, start_scene, width, height, include_returns=False, include_master=False):
         """
@@ -131,7 +135,7 @@ class PushClone(ControlSurface):
             if self._is_connected:
                 self.log_message("📡 Sending disconnect notification to hardware...")
                 # Send disconnect command with empty payload
-                self._send_sysex_command(CMD_DISCONNECT, [])
+                self._send_sysex_command(CMD_DISCONNECT, [], priority="immediate")
                 self._is_connected = False
         except Exception as e:
             self.log_message(f"⚠️ Error sending disconnect notification: {e}")
@@ -224,8 +228,8 @@ class PushClone(ControlSurface):
     # MIDI COMMUNICATION
     # ========================================
     
-    def _send_handshake(self):
-        """Send initial handshake to hardware"""
+    def _send_handshake(self, refresh=False):
+        """Send handshake to hardware"""
         try:
             # Create handshake SysEx message
             payload = [0x50, 0x43]  # "PC" for PushClone
@@ -235,12 +239,42 @@ class PushClone(ControlSurface):
                 self._send_midi(tuple(message))
                 self.log_message("🤝 Handshake sent to hardware")
                 # Optimistically mark connection so we can push state immediately
-                self._establish_connection("handshake sent", refresh=True)
+                self._establish_connection("handshake sent", refresh=refresh)
             else:
                 self.log_message("❌ Failed to create handshake message")
                 
         except Exception as e:
             self.log_message(f"❌ Error sending handshake: {e}")
+
+    def _schedule_handshake_retry(self, initial=False):
+        """Retry handshake periodically until hardware responds."""
+        if self._handshake_confirmed or self._handshake_retry_active:
+            return
+        try:
+            delay = 1 if initial else self._handshake_retry_interval_ticks
+            delay = max(1, int(delay))
+            self._handshake_retry_active = True
+            self.schedule_message(delay, self._handshake_retry_tick)
+        except Exception as e:
+            self._handshake_retry_active = False
+            self.log_message(f"⚠️ Unable to schedule handshake retry: {e}")
+
+    def _handshake_retry_tick(self):
+        """Called by scheduler to resend handshake."""
+        self._handshake_retry_active = False
+        if self._handshake_confirmed:
+            return
+        self.log_message("🔄 Retrying handshake (waiting for hardware acknowledgement)")
+        self._send_handshake(refresh=False)
+        if not self._handshake_confirmed:
+            self._schedule_handshake_retry()
+
+    def _confirm_handshake(self, reason="hardware response"):
+        """Stop handshake retries once hardware talks back."""
+        if not self._handshake_confirmed:
+            self._handshake_confirmed = True
+            self._handshake_retry_active = False
+            self.log_message(f"🤝 Handshake acknowledged ({reason})")
 
     def _establish_connection(self, reason, refresh=False):
         """
@@ -252,6 +286,7 @@ class PushClone(ControlSurface):
             if not already_connected:
                 self._is_connected = True
                 self.log_message(f"✅ Connection established ({reason})")
+                self._cancel_handshake_retry()
             else:
                 self.log_message(f"ℹ️ Connection already active ({reason})")
 
@@ -290,14 +325,12 @@ class PushClone(ControlSurface):
                         # Don't return - this is often a false positive due to encoding issues
                         # Instead, log it but continue sending
                 
-                # Validate all MIDI payload bytes are in valid range (0-127), ignoring header, command and footer
-                data_bytes = message[5:-1]  # Skip command byte at index 4 (allows extended command IDs)
-                invalid_bytes = [b for b in data_bytes if b < 0 or b > 127]
-                if invalid_bytes:
-                    if not silent:
-                        self.log_message(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: {invalid_bytes}")
-                    return
-                
+                                # Validate all MIDI bytes are in valid range (0-127), ignoring header and footer                           
+                                invalid_bytes = [b for b in message[4:-1] if b < 0 or b > 127]                                             
+                                if invalid_bytes:                            
+                                    if not silent:                           
+                                        self.log_message(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: {invalid_bytes}")        
+                                    return                
                 try:
                     # Use message coalescer for performance optimization
                     if self._message_coalescer and not priority:
@@ -361,7 +394,10 @@ class PushClone(ControlSurface):
         try:
             self.log_message("🔌 MIDI ports changed — re-sending handshake")
             self._is_connected = False
-            self._send_handshake()
+            self._handshake_confirmed = False
+            self._handshake_retry_active = False
+            self._send_handshake(refresh=True)
+            self._schedule_handshake_retry(initial=True)
         except Exception as e:
             self.log_message(f"❌ Error in port_settings_changed: {e}")
     
@@ -446,6 +482,7 @@ class PushClone(ControlSurface):
             if not self._is_connected and command != CMD_HANDSHAKE:
                 self.log_message("🔌 Auto-connecting: received valid command from hardware")
                 self._establish_connection(f"auto-connect (cmd 0x{command:02X})", refresh=True)
+                self._confirm_handshake(f"auto-connect cmd 0x{command:02X}")
 
             # View switching
             if command == CMD_SWITCH_VIEW:
@@ -521,10 +558,12 @@ class PushClone(ControlSurface):
                 
                 # Mark as connected and send complete state (hardware explicitly requested state)
                 self._establish_connection("handshake received", refresh=True)
+                self._confirm_handshake("handshake command")
             elif command == CMD_HANDSHAKE_REPLY:
                 self.log_message("🤝 Handshake reply received")
                 # payload contains hardware confirmation
                 self._establish_connection("handshake reply", refresh=False)
+                self._confirm_handshake("handshake reply")
         except Exception as e:
             self.log_message(f"❌ Error handling handshake command 0x{command:02X}: {e}")
     
@@ -1464,3 +1503,4 @@ class PushClone(ControlSurface):
         except Exception as e:
             self.log_message(f"❌ Error getting complete state: {e}")
             return {}
+        self._handshake_retry_task = None
