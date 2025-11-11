@@ -300,7 +300,10 @@ class SessionRing:
 
             if clip_manager:
                 self.c_surface.log_message("🔵 Calling clip_manager._send_neotrellis_clip_grid()")
-                clip_manager._send_neotrellis_clip_grid()
+                clip_manager._send_neotrellis_clip_grid(
+                    track_start=self.track_offset,
+                    scene_start=self.scene_offset
+                )
             else:
                 self.c_surface.log_message("⚠️ clip_manager is None!")
 

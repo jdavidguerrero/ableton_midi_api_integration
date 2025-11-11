@@ -1033,59 +1033,100 @@ class ClipManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending scene triggered S{scene_idx}: {e}")
 
-    def _send_neotrellis_clip_grid(self):
-        """Send/log the colors of all clips in the 4x8 grid to the NeoTrellis with FULL RGB."""
+    def _send_neotrellis_clip_grid(self, track_start=None, scene_start=None):
+        """Send/log the colors of the current 4x8 ring window to the NeoTrellis with FULL RGB."""
         is_connected = getattr(self.c_surface, '_is_connected', False)
 
+        session_ring = self.c_surface.get_manager('session_ring')
+        if session_ring:
+            if track_start is None:
+                track_start = session_ring.track_offset
+            if scene_start is None:
+                scene_start = session_ring.scene_offset
+
+        track_start = max(0, track_start if track_start is not None else 0)
+        scene_start = max(0, scene_start if scene_start is not None else 0)
+
+        total_tracks = len(self.song.tracks) if hasattr(self, 'song') else 0
+        total_scenes = len(self.song.scenes) if hasattr(self, 'song') else 0
+
+        max_track_start = max(0, total_tracks - GRID_WIDTH)
+        max_scene_start = max(0, total_scenes - GRID_HEIGHT)
+        track_start = min(track_start, max_track_start)
+        scene_start = min(scene_start, max_scene_start)
+
+        # Make sure we are listening to the region we are about to send
+        self.ensure_region_monitored(track_start, GRID_WIDTH, scene_start, GRID_HEIGHT)
+
         grid_data = []
-        # GRID_WIDTH = 8 tracks (horizontal), GRID_HEIGHT = 4 scenes (vertical)
-        track_count = min(GRID_WIDTH, len(self.song.tracks)) if hasattr(self, 'song') else GRID_WIDTH
-        scene_count = GRID_HEIGHT
-
+        grid_debug = []
         # Build grid row by row (scene by scene), with tracks as columns
-        # Physical layout: each row is a scene, each column is a track
-        for scene_idx in range(GRID_HEIGHT):  # 4 scenes (rows)
-            for track_idx in range(GRID_WIDTH):  # 8 tracks (cols)
-                color = (0, 0, 0) # Default to black
+        for scene_offset in range(GRID_HEIGHT):  # 4 scenes (rows)
+            abs_scene = scene_start + scene_offset
+            for track_offset in range(GRID_WIDTH):  # 8 tracks (cols)
+                abs_track = track_start + track_offset
+                color = (0, 0, 0)  # Default to black
+                raw_color_value = None
+                state_label = 'EMPTY'
 
-                # Only look up actual tracks/scenes that exist
-                if (track_idx < len(self.song.tracks) and
-                    scene_idx < len(self.song.tracks[track_idx].clip_slots) and
-                    self._clip_exists(track_idx, scene_idx)):
-                    clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
-                    clip = clip_slot.clip
+                if (abs_track < total_tracks and
+                    abs_scene < total_scenes and
+                    abs_scene < len(self.song.tracks[abs_track].clip_slots)):
+                    
+                    clip_slots = self.song.tracks[abs_track].clip_slots
+                    clip_slot = clip_slots[abs_scene]
 
-                    # Determine clip state
-                    if clip_slot.is_playing:
-                        state = CLIP_PLAYING
-                    elif clip_slot.is_triggered:
-                        state = CLIP_QUEUED
-                    elif hasattr(clip_slot, 'is_recording') and clip_slot.is_recording:
-                        state = CLIP_RECORDING
+                    if clip_slot.has_clip and self._clip_exists(abs_track, abs_scene):
+                        clip = clip_slot.clip
+                        raw_color_value = getattr(clip, 'color', None)
+
+                        if clip_slot.is_playing:
+                            state = CLIP_PLAYING
+                            state_label = 'PLAYING'
+                        elif clip_slot.is_triggered:
+                            state = CLIP_QUEUED
+                            state_label = 'QUEUED'
+                        elif hasattr(clip_slot, 'is_recording') and clip_slot.is_recording:
+                            state = CLIP_RECORDING
+                            state_label = 'RECORDING'
+                        else:
+                            state = CLIP_STOPPED
+                            state_label = 'STOPPED'
+
+                        base_color = ColorUtils.live_color_to_rgb(clip.color)
+                        color = ColorUtils.get_clip_state_color(state, base_color)
                     else:
-                        state = CLIP_STOPPED  # Has clip but not playing
-
-                    # Get base color
-                    base_color = ColorUtils.live_color_to_rgb(clip.color)
-
-                    # Calculate final color with state
-                    color = ColorUtils.get_clip_state_color(state, base_color)
-                else:
-                    # Empty slot - use dim track color
-                    if track_idx < len(self.song.tracks):
-                        track_color = ColorUtils.live_color_to_rgb(self.song.tracks[track_idx].color)
+                        # Empty slot - use dim track color
+                        track_color = ColorUtils.live_color_to_rgb(self.song.tracks[abs_track].color)
+                        raw_color_value = getattr(self.song.tracks[abs_track], 'color', None)
                         color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
+                        state_label = 'DIM_TRACK'
+                elif abs_track < total_tracks:
+                    track_color = ColorUtils.live_color_to_rgb(self.song.tracks[abs_track].color)
+                    raw_color_value = getattr(self.song.tracks[abs_track], 'color', None)
+                    color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
+                    state_label = 'DIM_TRACK'
 
                 grid_data.append(color)
+                grid_debug.append({
+                    'track': abs_track,
+                    'scene': abs_scene,
+                    'state': state_label,
+                    'raw_color': raw_color_value
+                })
 
         # LOG GRID COLORS BEFORE ENCODING
         self.c_surface.log_message("=" * 80)
         self.c_surface.log_message(f"GRID_COLORS: Sending {len(grid_data)} pads")
         self.c_surface.log_message("=" * 80)
         for pad_idx, (r, g, b) in enumerate(grid_data):
-            scene = pad_idx // GRID_WIDTH  # Which row (scene)
-            track = pad_idx % GRID_WIDTH   # Which column (track)
-            self.c_surface.log_message(f"PAD[{pad_idx:02d}] T{track}S{scene}: RGB({r:3d},{g:3d},{b:3d})")
+            debug_info = grid_debug[pad_idx]
+            raw_color = debug_info['raw_color']
+            raw_str = f"0x{raw_color:06X}" if isinstance(raw_color, int) else "None"
+            self.c_surface.log_message(
+                f"PAD[{pad_idx:02d}] T{debug_info['track']}S{debug_info['scene']}: "
+                f"RGB({r:3d},{g:3d},{b:3d}) src={raw_str} state={debug_info['state']}"
+            )
         self.c_surface.log_message("=" * 80)
 
         if not is_connected:
@@ -1633,6 +1674,45 @@ class ClipManager:
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending clip/scene state: {e}")
+
+    def ensure_region_monitored(self, track_start, track_count, scene_start, scene_count):
+        """
+        Ensure listeners exist for the requested absolute track/scene region.
+        Useful when the session ring moves to a new window.
+        """
+        if not self._is_active:
+            return
+        if track_start is None or scene_start is None:
+            return
+
+        try:
+            track_start = max(0, int(track_start))
+            scene_start = max(0, int(scene_start))
+            track_count = max(0, int(track_count))
+            scene_count = max(0, int(scene_count))
+
+            if track_count == 0 or scene_count == 0:
+                return
+
+            total_tracks = len(self.song.tracks)
+            total_scenes = len(self.song.scenes)
+            track_end = min(total_tracks, track_start + track_count)
+            scene_end = min(total_scenes, scene_start + scene_count)
+
+            if track_start >= track_end or scene_start >= scene_end:
+                return
+
+            for track_idx in range(track_start, track_end):
+                for scene_idx in range(scene_start, scene_end):
+                    self._setup_single_clip_listeners(track_idx, scene_idx)
+
+            for scene_idx in range(scene_start, scene_end):
+                self._setup_single_scene_listeners(scene_idx)
+
+        except Exception as e:
+            self.c_surface.log_message(
+                f"❌ Error ensuring listeners for region starting at T{track_start} S{scene_start}: {e}"
+            )
     
     def add_clip_listener(self, track_idx, scene_idx):
         """Add listeners for a new clip position"""

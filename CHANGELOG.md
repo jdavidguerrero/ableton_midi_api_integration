@@ -1,5 +1,14 @@
 # PushClone - Changelog
 
+## [1.0.6] - 2025-11-11
+
+### Fixed
+- **MIDIUtils.py / StepSequencerManager.py**: Restored `SysExEncoder.encode_view_switch()` and `encode_step_sequencer_state()` helpers and updated the sequencer manager to use them, eliminating the missing-attribute errors when sending navigation and sequencer snapshots.
+- **ClipManager.py / SessionRing.py**: Session grid updates now follow the current session ring window. Newly visited regions automatically register listeners so creating clips in any scrolled area refreshes the hardware grid immediately.
+- **Color fidelity**: `ColorUtils.live_color_to_rgb()` now decodes Live's `clip.color`/`track.color` values as `0xRRGGBB`, and grid logs show the raw Live color for each pad to verify the values coming from the API.
+- **SysEx encoder**: Commands are no longer forced into 7-bit values, so `CMD_DISCONNECT = 0xB0` (and any other >0x7F command) is transmitted as-is.
+- **Connection flow**: The script now marks itself connected right after sending the handshake (and whenever hardware sends a handshake) so the complete state/grid is pushed immediately, even if the hardware doesn't reply. Validation was also relaxed so extended command IDs (> `0x7F`) are allowed while payload bytes remain 7-bit clean.
+
 ## [1.0.5] - 2025-11-11
 
 ### Added

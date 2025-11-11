@@ -234,11 +234,31 @@ class PushClone(ControlSurface):
             if message:
                 self._send_midi(tuple(message))
                 self.log_message("🤝 Handshake sent to hardware")
+                # Optimistically mark connection so we can push state immediately
+                self._establish_connection("handshake sent", refresh=True)
             else:
                 self.log_message("❌ Failed to create handshake message")
                 
         except Exception as e:
             self.log_message(f"❌ Error sending handshake: {e}")
+
+    def _establish_connection(self, reason, refresh=False):
+        """
+        Mark the hardware connection as active and optionally resend full state.
+        `refresh=True` forces a state dump even if we were already connected (useful for resync requests).
+        """
+        try:
+            already_connected = self._is_connected
+            if not already_connected:
+                self._is_connected = True
+                self.log_message(f"✅ Connection established ({reason})")
+            else:
+                self.log_message(f"ℹ️ Connection already active ({reason})")
+
+            if refresh or not already_connected:
+                self._send_complete_state()
+        except Exception as e:
+            self.log_message(f"❌ Error while establishing connection ({reason}): {e}")
     
     def _send_sysex_command(self, command, payload, silent=False, priority=None):
         """Send SysEx command to hardware"""
@@ -270,8 +290,9 @@ class PushClone(ControlSurface):
                         # Don't return - this is often a false positive due to encoding issues
                         # Instead, log it but continue sending
                 
-                # Validate all MIDI bytes are in valid range (0-127), ignoring header and footer
-                invalid_bytes = [b for b in message[4:-1] if b < 0 or b > 127]
+                # Validate all MIDI payload bytes are in valid range (0-127), ignoring header, command and footer
+                data_bytes = message[5:-1]  # Skip command byte at index 4 (allows extended command IDs)
+                invalid_bytes = [b for b in data_bytes if b < 0 or b > 127]
                 if invalid_bytes:
                     if not silent:
                         self.log_message(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: {invalid_bytes}")
@@ -424,9 +445,7 @@ class PushClone(ControlSurface):
             # Auto-connect: if we're receiving valid commands from hardware, we're connected
             if not self._is_connected and command != CMD_HANDSHAKE:
                 self.log_message("🔌 Auto-connecting: received valid command from hardware")
-                self._is_connected = True
-                # Send complete state on first connection
-                self._send_complete_state()
+                self._establish_connection(f"auto-connect (cmd 0x{command:02X})", refresh=True)
 
             # View switching
             if command == CMD_SWITCH_VIEW:
@@ -500,16 +519,12 @@ class PushClone(ControlSurface):
                 reply_payload = [0x4C, 0x56]  # "LV" for Live
                 self._send_sysex_command(CMD_HANDSHAKE_REPLY, reply_payload)
                 
-                # Mark as connected and send complete state
-                self._is_connected = True
-                self.log_message("✅ Connection established")
-                
-                # Send complete state from all managers
-                self._send_complete_state()
+                # Mark as connected and send complete state (hardware explicitly requested state)
+                self._establish_connection("handshake received", refresh=True)
             elif command == CMD_HANDSHAKE_REPLY:
                 self.log_message("🤝 Handshake reply received")
                 # payload contains hardware confirmation
-                self._is_connected = True
+                self._establish_connection("handshake reply", refresh=False)
         except Exception as e:
             self.log_message(f"❌ Error handling handshake command 0x{command:02X}: {e}")
     

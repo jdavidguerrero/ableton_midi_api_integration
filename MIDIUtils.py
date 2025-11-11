@@ -75,8 +75,13 @@ class SysExEncoder:
         length, payload, and checksum.
         """
         try:
+            command_value = int(command)
+            if not (0 <= command_value <= 0xFF):
+                print(f"❌ Invalid SysEx command value: {command}")
+                return None
+
             message = list(SYSEX_HEADER)
-            message.append(command & 0x7F)
+            message.append(command_value)
             
             sequence = SysExEncoder._get_next_sequence()
             message.append(sequence)
@@ -94,7 +99,7 @@ class SysExEncoder:
                         return None
                     message.append(byte)
             
-            checksum = command ^ sequence
+            checksum = command_value ^ sequence
             if payload:
                 for byte in payload:
                     checksum ^= byte
@@ -173,6 +178,29 @@ class SysExEncoder:
     # --- Other Encoders ---
 
     @staticmethod
+    def encode_view_switch(view_id):
+        """Encodes a view switch request."""
+        payload = [view_id & 0x7F]
+        return SysExEncoder.create_sysex(CMD_SWITCH_VIEW, payload)
+
+    @staticmethod
+    def encode_step_sequencer_state(grid_data, page=0):
+        """
+        Encodes the 4x8 step sequencer grid.
+        Payload format: [page, len, step0, step1, ...]
+        """
+        steps = list(grid_data) if grid_data else []
+        steps = [max(0, min(127, int(value))) for value in steps]
+
+        payload = [
+            page & 0x7F,
+            len(steps) & 0x7F
+        ]
+        payload.extend(steps)
+
+        return SysExEncoder.create_sysex(CMD_STEP_SEQUENCER_STATE, payload)
+
+    @staticmethod
     def encode_param_value(track, device, param, value, display_str):
         """Encodes an individual parameter value with its display string."""
         display_bytes = display_str.encode('utf-8')[:10]
@@ -235,12 +263,12 @@ class ColorUtils:
         if live_color in LIVE_COLORS:
             return LIVE_COLORS[live_color]
 
-        # Otherwise, decode as packed RGB integer
-        # Live color format is likely BBGGRR, not RRGGBB
+        # Otherwise, decode as packed RGB integer coming from Live.
+        # Live exposes clip/track colors as 0xRRGGBB (confirmed via Push logs).
         try:
-            b = (live_color >> 16) & 0xFF
+            r = (live_color >> 16) & 0xFF
             g = (live_color >> 8) & 0xFF
-            r = live_color & 0xFF
+            b = live_color & 0xFF
 
             # Debug log to verify conversion (comment out after testing)
             # print(f"COLOR_DECODE: Live_color={live_color} (0x{live_color:06X}) -> RGB({r},{g},{b})")
