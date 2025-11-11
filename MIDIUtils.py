@@ -257,11 +257,14 @@ class ColorUtils:
 
         Example: 16249980 = 0xF8EB0C = RGB(248, 235, 12) = Yellow
         """
-        from .consts import LIVE_COLORS
+        from .consts import LIVE_COLORS, NEOTRELLIS_COLOR_MAP
 
         # If it's a known color index (0-69), use the LIVE_COLORS lookup
         if live_color in LIVE_COLORS:
-            return LIVE_COLORS[live_color]
+            return ColorUtils._apply_neotrellis_calibration(
+                LIVE_COLORS[live_color],
+                live_color
+            )
 
         # Otherwise, decode as packed RGB integer coming from Live.
         # Live exposes clip/track colors as 0xRRGGBB (confirmed via Push logs).
@@ -273,10 +276,37 @@ class ColorUtils:
             # Debug log to verify conversion (comment out after testing)
             # print(f"COLOR_DECODE: Live_color={live_color} (0x{live_color:06X}) -> RGB({r},{g},{b})")
 
-            return (r, g, b)
+            return ColorUtils._apply_neotrellis_calibration((r, g, b))
         except:
             # Fallback to gray if something goes wrong
             return (128, 128, 128)
+
+    @staticmethod
+    def _apply_neotrellis_calibration(rgb, live_color=None):
+        """
+        Apply LED-friendly adjustments:
+        - Custom overrides for Live's indexed palette (avoids muddy browns).
+        - Minimum brightness for dim colors so they stay visible on NeoTrellis.
+        """
+        from .consts import NEOTRELLIS_COLOR_MAP
+
+        if live_color is not None and live_color in NEOTRELLIS_COLOR_MAP:
+            return NEOTRELLIS_COLOR_MAP[live_color]
+
+        r, g, b = [max(0, min(255, int(v))) for v in rgb]
+
+        max_channel = max(r, g, b)
+        if 0 < max_channel < 96:
+            boost = 96 / float(max_channel)
+            r = min(255, int(r * boost))
+            g = min(255, int(g * boost))
+            b = min(255, int(b * boost))
+
+        if r > 170 and g > 90 and b < 70:
+            b = min(160, b + 60)
+            g = min(255, g + 20)
+
+        return (r, g, b)
 
     @staticmethod
     def get_track_default_color(track_index):

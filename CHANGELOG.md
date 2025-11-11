@@ -7,7 +7,10 @@
 - **ClipManager.py / SessionRing.py**: Session grid updates now follow the current session ring window. Newly visited regions automatically register listeners so creating clips in any scrolled area refreshes the hardware grid immediately.
 - **Color fidelity**: `ColorUtils.live_color_to_rgb()` now decodes Live's `clip.color`/`track.color` values as `0xRRGGBB`, and grid logs show the raw Live color for each pad to verify the values coming from the API.
 - **SysEx encoder**: Commands are no longer forced into 7-bit values, so `CMD_DISCONNECT = 0xB0` (and any other >0x7F command) is transmitted as-is.
+- **Palette tuning**: Added NeoTrellis-friendly overrides for Live's indexed palette and a uniform “dim white” color for empty pads so the hardware grid stays legible even when Live chooses muddy hues.
 - **Connection flow**: The script now marks itself connected right after sending the handshake (and whenever hardware sends a handshake) so the complete state/grid is pushed immediately, even if the hardware doesn't reply. Validation was also relaxed so extended command IDs (> `0x7F`) are allowed while payload bytes remain 7-bit clean.
+- **CPU telemetry opt-out**: `CMD_CPU_USAGE (0xA4)` is now gated behind `ENABLE_CPU_USAGE_STREAM` (default `False`) to avoid repeated MIDI send failures on hardware that doesn’t implement the command.
+- **Session ring refresh**: When Live moves the session ring (e.g., selecting tracks/scenes with the mouse), `_send_ring_clips()` now runs automatically so the hardware grid reflects clips created outside the current window as soon as you return.
 
 ## [1.0.5] - 2025-11-11
 

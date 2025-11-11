@@ -127,6 +127,7 @@ class SessionRing:
 
             # Inform hardware about the new ring window
             self._send_ring_position()
+            self._send_ring_clips()
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error updating ring from selection: {e}")

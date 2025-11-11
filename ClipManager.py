@@ -1096,16 +1096,16 @@ class ClipManager:
                         base_color = ColorUtils.live_color_to_rgb(clip.color)
                         color = ColorUtils.get_clip_state_color(state, base_color)
                     else:
-                        # Empty slot - use dim track color
-                        track_color = ColorUtils.live_color_to_rgb(self.song.tracks[abs_track].color)
                         raw_color_value = getattr(self.song.tracks[abs_track], 'color', None)
-                        color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
-                        state_label = 'DIM_TRACK'
+                        color = NEOTRELLIS_EMPTY_PAD_COLOR
+                        state_label = 'EMPTY'
                 elif abs_track < total_tracks:
-                    track_color = ColorUtils.live_color_to_rgb(self.song.tracks[abs_track].color)
                     raw_color_value = getattr(self.song.tracks[abs_track], 'color', None)
-                    color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
-                    state_label = 'DIM_TRACK'
+                    color = NEOTRELLIS_EMPTY_PAD_COLOR
+                    state_label = 'EMPTY'
+                else:
+                    raw_color_value = None
+                    color = NEOTRELLIS_EMPTY_PAD_COLOR
 
                 grid_data.append(color)
                 grid_debug.append({

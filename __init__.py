@@ -11,7 +11,7 @@ def create_instance(c_instance):
     c_instance: Live's C++ instance for communication
     """
     # Log a version number to help verify script updates
-    logger.info("--- PushClone Script v1.0.6 (2025-11-11) Loading ---")
+    logger.info("--- PushClone Script v1.0.7 (2025-11-11) Loading ---")
     return PushClone(c_instance)
 
 def get_capabilities():

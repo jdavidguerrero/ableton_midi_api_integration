@@ -249,6 +249,29 @@ LIVE_COLORS = {
     15: (0, 0, 0),       # Black
 }
 
+# NeoTrellis-specific palette adjustments for Live's indexed colors
+NEOTRELLIS_COLOR_MAP = {
+    0: (255, 80, 72),    # Red - slightly brighter
+    1: (255, 180, 90),   # Orange - reduce brown feel
+    2: (255, 255, 110),  # Yellow - extra brightness
+    3: (190, 255, 110),  # Lime
+    4: (90, 255, 140),   # Green - avoid muddy green
+    5: (90, 255, 210),   # Mint - more cyan
+    6: (100, 240, 255),  # Cyan - softer blue
+    7: (120, 190, 255),  # Light Blue
+    8: (110, 140, 255),  # Blue - brighter
+    9: (200, 100, 255),  # Purple - less dark
+    10: (255, 100, 235), # Magenta
+    11: (255, 130, 190), # Pink
+    12: (190, 190, 190), # Gray - brighter
+    13: (255, 255, 255), # White
+    14: (80, 80, 80),    # Dark Gray - avoid full black
+    15: (10, 10, 10),    # Black - leave a faint glow
+}
+
+# Default LED color for empty pads (no clip present)
+NEOTRELLIS_EMPTY_PAD_COLOR = (40, 40, 40)
+
 # Clip state colors (for reference - actual colors calculated in MIDIUtils.py)
 CLIP_STATE_COLORS = {
     CLIP_EMPTY: (0, 0, 0),           # Off
@@ -294,6 +317,7 @@ LOG_MIDI_MESSAGES = True   # Enable for Teensy development
 LOG_LISTENER_EVENTS = True # Enable for debugging  
 LOG_VIEW_SWITCHES = True
 LOG_PARAMETER_CHANGES = False
+ENABLE_CPU_USAGE_STREAM = False  # Disable CPU usage SysEx until firmware supports it reliably
 
 # ========================================
 # PROTOCOL SETTINGS

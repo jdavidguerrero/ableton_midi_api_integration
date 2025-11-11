@@ -23,6 +23,7 @@ class SongManager:
         self.c_surface.log_message("🔧 Initializing SongManager...")
         
         # CPU monitoring throttling
+        self._cpu_monitor_enabled = ENABLE_CPU_USAGE_STREAM
         self._last_cpu_log_time = 0
         self._cpu_log_interval = 5.0  # Log CPU only every 5 seconds
         self._last_cpu_values = (0, 0)  # (avg, peak)
@@ -111,14 +112,15 @@ class SongManager:
     
     def _add_application_listeners(self):
         """Add Application object listeners"""
-        # CPU Usage
-        cpu_listener = lambda: self._on_cpu_usage_changed()
-        self.app.add_average_process_usage_listener(cpu_listener)
-        self.app.add_peak_process_usage_listener(cpu_listener)
-        self._listeners.extend([
-            ('average_cpu', cpu_listener),
-            ('peak_cpu', cpu_listener)
-        ])
+        # CPU Usage (optional)
+        if self._cpu_monitor_enabled:
+            cpu_listener = lambda: self._on_cpu_usage_changed()
+            self.app.add_average_process_usage_listener(cpu_listener)
+            self.app.add_peak_process_usage_listener(cpu_listener)
+            self._listeners.extend([
+                ('average_cpu', cpu_listener),
+                ('peak_cpu', cpu_listener)
+            ])
         
         # Control Surfaces
         control_surfaces_listener = lambda: self._on_control_surfaces_changed()
@@ -289,8 +291,8 @@ class SongManager:
             self._send_session_record_state(session_record)
     
     def _on_cpu_usage_changed(self):
-        """CPU usage changed - disabled logging for now"""
-        if not self.c_surface._is_connected:
+        """CPU usage changed - optional stream to hardware"""
+        if not (self.c_surface._is_connected and self._cpu_monitor_enabled):
             return
             
         try:
@@ -442,6 +444,8 @@ class SongManager:
     
     def _send_cpu_usage_state(self, avg_cpu, peak_cpu):
         """Send CPU usage to hardware"""
+        if not self._cpu_monitor_enabled:
+            return
         try:
             # Convert to 0-127 range
             avg_byte = int(avg_cpu * 127)
@@ -526,7 +530,8 @@ class SongManager:
             if hasattr(self.song, 'session_record'):
                 self._send_session_record_state(self.song.session_record)
             
-            self._send_cpu_usage_state(self.app.average_process_usage, self.app.peak_process_usage)
+            if self._cpu_monitor_enabled:
+                self._send_cpu_usage_state(self.app.average_process_usage, self.app.peak_process_usage)
             self._send_cue_points_list(self.song.cue_points)
             
             self.c_surface.log_message("✅ Song state sent")
