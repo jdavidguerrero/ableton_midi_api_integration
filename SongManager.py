@@ -294,15 +294,20 @@ class SongManager:
             return
             
         try:
-            avg_cpu = self.app.average_process_usage
-            peak_cpu = self.app.peak_process_usage
+            avg_cpu = getattr(self.app, 'average_process_usage', 0.0)
+            peak_cpu = getattr(self.app, 'peak_process_usage', 0.0)
             
             # Only log when CPU is REALLY high (above 80%)
             if peak_cpu > 80.0:
                 self.c_surface.log_message(f"⚠️ VERY HIGH CPU: Avg:{avg_cpu:.1f}% Peak:{peak_cpu:.1f}%")
             
-            # Send to hardware for real-time monitoring (silent)
-            self._send_cpu_usage_state(avg_cpu, peak_cpu)
+            # Send to hardware throttled (once per second max)
+            import time
+            now = time.time()
+            last_sent = getattr(self, '_last_cpu_send', 0)
+            if now - last_sent >= self._cpu_log_interval:
+                self._last_cpu_send = now
+                self._send_cpu_usage_state(avg_cpu, peak_cpu)
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error in CPU monitoring: {e}")
@@ -364,10 +369,20 @@ class SongManager:
     def _send_song_position_state(self, song_time):
         """Send song position to hardware"""
         try:
-            # Convert to bars.beats.sixteenths
-            beats = int(song_time) % 4
-            bars = int(song_time) // 4
-            sixteenths = int((song_time - int(song_time)) * 16)
+            # Convert to bars.beats.sixteenths using current time signature
+            numerator = max(1, int(self.song.signature_numerator))
+            denominator = max(1, int(self.song.signature_denominator))
+            quarter_per_beat = 4.0 / denominator
+            bar_length_quarters = numerator * quarter_per_beat
+            if bar_length_quarters <= 0:
+                bar_length_quarters = 4.0
+            
+            bars = int(song_time // bar_length_quarters)
+            beat_time = song_time - (bars * bar_length_quarters)
+            current_beat = int(beat_time // quarter_per_beat)
+            beat_fraction = beat_time - (current_beat * quarter_per_beat)
+            sixteenths = int((song_time - int(song_time)) * 16) & 0x7F
+            beats = current_beat & 0x7F
             
             payload = [bars & 0x7F, beats, sixteenths]
             self.c_surface._send_sysex_command(CMD_TRANSPORT_POSITION, payload)

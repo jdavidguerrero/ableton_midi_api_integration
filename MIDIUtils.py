@@ -82,11 +82,10 @@ class SysExEncoder:
             message.append(sequence)
             
             payload_len = len(payload) if payload else 0
-            # Encode length as 14-bit value if it exceeds 127
-            if payload_len > 127:
-                message.extend([(payload_len >> 7) & 0x7F, payload_len & 0x7F])
-            else:
-                message.append(payload_len & 0x7F)
+            # Always encode payload length as 14-bit (MSB, LSB)
+            len_msb = (payload_len >> 7) & 0x7F
+            len_lsb = payload_len & 0x7F
+            message.extend([len_msb, len_lsb])
 
             if payload:
                 for byte in payload:
@@ -197,7 +196,7 @@ class SysExEncoder:
             int(beat) & 0x7F,
             int(bar) & 0x7F
         ]
-        return SysExEncoder.create_sysex(CMD_TRANSPORT, payload)
+        return SysExEncoder.create_sysex(CMD_TRANSPORT_STATE, payload)
 
     @staticmethod
     def log_sysex(message, direction="OUT"):

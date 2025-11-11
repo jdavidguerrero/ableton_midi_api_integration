@@ -35,7 +35,7 @@ class MessageCoalescer:
         
         # Message priorities
         self._priority_commands = {
-            CMD_TRANSPORT: 1,  # High priority
+            CMD_TRANSPORT_STATE: 1,  # High priority
             CMD_CLIP_STATE: 2,
             CMD_DEVICE_PARAMS: 2,
             CMD_STEP_SEQUENCER_STATE: 3,
@@ -116,7 +116,7 @@ class MessageCoalescer:
             CMD_STEP_SEQUENCER_STATE,
             CMD_DEVICE_PARAMS,
             CMD_MIXER_STATE,
-            CMD_TRANSPORT
+            CMD_TRANSPORT_STATE
         }
         return command in led_commands
     

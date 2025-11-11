@@ -3,6 +3,7 @@ from __future__ import with_statement
 import Live
 from _Framework.ControlSurface import ControlSurface
 from _Framework.InputControlElement import *
+from _Framework.SessionComponent import SessionComponent
 from .consts import *
 from .MIDIUtils import SysExEncoder, ColorUtils
 
@@ -44,10 +45,22 @@ class PushClone(ControlSurface):
         self._message_count = 0
         self._current_view = "clip"  # clip, mixer, device, note
         
+        # Session ring dimensions
+        # NeoTrellis M4 physical layout:
+        #   - 8 columnas (horizontal) = 8 TRACKS (incluyendo master)
+        #   - 4 filas (vertical) = 4 SCENES
+        #
+        # Ableton Session Ring terminology:
+        #   - ring_width = número de TRACKS visibles
+        #   - ring_height = número de SCENES visibles
+        self.ring_width = GRID_WIDTH    # 8 tracks (horizontal)
+        self.ring_height = GRID_HEIGHT  # 4 scenes (vertical)
+        
         # Initialize all managers
         self._managers = {}
         self._session_ring = None
         self._message_coalescer = None
+        self._session = None
         self._initialize_managers()
         
         # Current selections and state
@@ -73,6 +86,12 @@ class PushClone(ControlSurface):
             self.log_message("🚀 PushClone Orchestrator Loading...")
             self.show_message("PushClone: Initializing Complete API Coverage...")
             
+            # Setup session component
+            self._session = SessionComponent(self.ring_width, self.ring_height)
+            if self._session_ring:
+                self._session_ring.set_session_component(self._session)
+            self.set_highlighting_session_component(self._session)
+            
             # Setup all managers
             self._setup_all_managers()
             
@@ -80,6 +99,28 @@ class PushClone(ControlSurface):
             self._send_handshake()
             
             self.log_message("✅ PushClone Orchestrator Ready - Full Live API Coverage Active")
+
+    def set_session_highlight(self, start_track, start_scene, width, height, include_returns=False, include_master=False):
+        """
+        Compatibility wrapper so SessionComponent can highlight the ring
+        even on Live versions where ControlSurface doesn't expose this helper.
+        """
+        try:
+            c_instance = getattr(self, '_c_instance', None)
+            if c_instance and hasattr(c_instance, 'set_session_highlight'):
+                c_instance.set_session_highlight(
+                    start_track,
+                    start_scene,
+                    width,
+                    height,
+                    include_returns,
+                    include_master
+                )
+            else:
+                # Older Live builds may not expose session highlight at all.
+                self.log_message("ℹ️ set_session_highlight not supported by this Live build")
+        except Exception as e:
+            self.log_message(f"❌ Error calling set_session_highlight: {e}")
 
     def disconnect(self):
         """Cleanup and disconnect"""
@@ -128,9 +169,9 @@ class PushClone(ControlSurface):
             
             # Setup each manager with appropriate parameters
             self._managers['song'].setup_listeners()
-            self._managers['track'].setup_listeners(max_tracks=8)
-            self._managers['clip'].setup_listeners(max_tracks=8, max_scenes=8)
-            self._managers['device'].setup_listeners(max_tracks=8, max_devices_per_track=8)
+            self._managers['track'].setup_listeners(max_tracks=self.ring_width)
+            self._managers['clip'].setup_listeners(max_tracks=self.ring_width, max_scenes=self.ring_height)
+            self._managers['device'].setup_listeners(max_tracks=self.ring_width, max_devices_per_track=8)
             self._managers['transport'].setup_listeners()
             self._managers['browser'].setup_listeners()
             self._managers['automation'].setup_listeners()
@@ -193,7 +234,7 @@ class PushClone(ControlSurface):
             message = SysExEncoder.create_sysex(command, payload)
             if message:
                 # Validate message before sending
-                if len(message) > 64:  # Increased limit for larger SysEx messages
+                if len(message) > MAX_SYSEX_SIZE:
                     if not silent:
                         self.log_message(f"⚠️ SysEx too long ({len(message)} bytes) for command 0x{command:02X}")
                     return
@@ -205,10 +246,12 @@ class PushClone(ControlSurface):
                     return
                 
                 # Check payload length vs declared length
-                if len(message) >= 9:  # Header(4) + Command(1) + Seq(1) + Length(1) + Checksum(1) + End(1) = 9 minimum
-                    declared_length = message[6]  # Length byte position (now at index 6)
-                    # Message structure: Header(4) + Command(1) + Seq(1) + Length(1) + Payload(N) + Checksum(1) + End(1) = 9 + N
-                    actual_payload_length = len(message) - 9  # Total - overhead (9 bytes)
+                if len(message) >= 10:  # Header(4) + Command(1) + Seq(1) + Length(2) + Checksum(1) + End(1)
+                    length_msb = message[6]
+                    length_lsb = message[7]
+                    declared_length = (length_msb << 7) | length_lsb
+                    # New structure: Header(4) + Cmd(1) + Seq(1) + Len(2) + Payload(N) + Checksum(1) + End(1)
+                    actual_payload_length = len(message) - 10
                     if declared_length != actual_payload_length:
                         if not silent:
                             self.log_message(f"⚠️ SysEx length mismatch for 0x{command:02X}: declared={declared_length}, actual={actual_payload_length}, message_len={len(message)}")
@@ -316,7 +359,7 @@ class PushClone(ControlSurface):
             hex_str = " ".join([f"{b:02X}" for b in midi_bytes])
             self.log_message(f"🔵 SYSEX_IN (raw): {hex_str}")
 
-            if len(midi_bytes) < 6:  # Minimum valid message length
+            if len(midi_bytes) < 10:  # Minimum valid message length with 14-bit size
                 self.log_message(f"⚠️ SysEx too short: {len(midi_bytes)} bytes")
                 return
 
@@ -330,14 +373,18 @@ class PushClone(ControlSurface):
             
             command = midi_bytes[4]
             sequence = midi_bytes[5]
-            payload_length = midi_bytes[6]
+            length_msb = midi_bytes[6]
+            length_lsb = midi_bytes[7]
+            payload_length = (length_msb << 7) | length_lsb
+            payload_start = 8
+            payload_end = payload_start + payload_length
             
-            if len(midi_bytes) < 7 + payload_length + 2:  # +2 for checksum and end byte
-                self.log_message(f"⚠️ SysEx payload incomplete: expected {payload_length}, got {len(midi_bytes) - 9}")
+            if len(midi_bytes) < payload_end + 2:  # +2 for checksum and end byte
+                self.log_message(f"⚠️ SysEx payload incomplete: expected {payload_length}, got {len(midi_bytes) - 10}")
                 return
             
-            payload = list(midi_bytes[7:7+payload_length])
-            received_checksum = midi_bytes[7+payload_length]
+            payload = list(midi_bytes[payload_start:payload_end])
+            received_checksum = midi_bytes[payload_end]
             
             # Verify enhanced checksum
             calculated_checksum = command ^ sequence
@@ -362,6 +409,13 @@ class PushClone(ControlSurface):
     def _route_command(self, command, payload):
         """Route SysEx command to appropriate manager"""
         try:
+            # Auto-connect: if we're receiving valid commands from hardware, we're connected
+            if not self._is_connected and command != CMD_HANDSHAKE:
+                self.log_message("🔌 Auto-connecting: received valid command from hardware")
+                self._is_connected = True
+                # Send complete state on first connection
+                self._send_complete_state()
+
             # View switching
             if command == CMD_SWITCH_VIEW:
                 self._handle_view_switch(payload)
@@ -412,6 +466,10 @@ class PushClone(ControlSurface):
             elif 0x70 <= command <= 0x7F:
                 self._handle_song_creation_command(command, payload)
                 self.handle_session_navigation_command(command, payload)
+            
+            # Streaming/real-time commands (0x90-0x9F)
+            elif 0x90 <= command <= 0x9F:
+                self._handle_streaming_command(command, payload)
 
             else:
                 self.log_message(f"❓ Unknown command: 0x{command:02X}")
@@ -489,6 +547,18 @@ class PushClone(ControlSurface):
                 
         except Exception as e:
             self.log_message(f"❌ Error handling clip command 0x{command:02X}: {e}")
+    
+    def _handle_streaming_command(self, command, payload):
+        """Handle streaming/system commands"""
+        try:
+            if command == CMD_NUDGE:
+                self._managers['transport'].handle_nudge_command(payload)
+            elif command in (CMD_MIDI_NOTE_ADD, CMD_MIDI_NOTE_REMOVE, CMD_MIDI_NOTES):
+                self._managers['clip'].handle_midi_clip_command(command, payload)
+            else:
+                self.log_message(f"❓ Unknown streaming command: 0x{command:02X}")
+        except Exception as e:
+            self.log_message(f"❌ Error handling streaming command 0x{command:02X}: {e}")
     
     def _handle_mixer_command(self, command, payload):
         """Handle mixer view commands"""

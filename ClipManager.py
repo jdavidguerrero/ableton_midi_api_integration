@@ -416,14 +416,14 @@ class ClipManager:
                         self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
             
             self._send_clip_state(track_idx, scene_idx)
-            self._send_grid_update()
+            self._send_neotrellis_clip_grid()
     
     def _on_clip_playing_changed(self, track_idx, scene_idx):
         """Clip playing status changed"""
         if self.c_surface._is_connected:
             self.c_surface.log_message(f"▶️ Clip T{track_idx}S{scene_idx} playing status changed")
             self._send_clip_state(track_idx, scene_idx)
-            self._send_grid_update()
+            self._send_neotrellis_clip_grid()
     
     def _on_clip_fired_changed(self, track_idx, scene_idx):
         """Handle clip fired/queued status change"""
@@ -469,7 +469,7 @@ class ClipManager:
             color_rgb = ColorUtils.live_color_to_rgb(clip.color)
             self.c_surface.log_message(f"🎨 Clip T{track_idx}S{scene_idx} color: {color_rgb}")
             self._send_clip_state(track_idx, scene_idx)  # Send full state with new color
-            self._send_grid_update()
+            self._send_neotrellis_clip_grid()
     
     def _on_clip_loop_changed(self, track_idx, scene_idx):
         """Clip loop state changed"""
@@ -1034,17 +1034,22 @@ class ClipManager:
             self.c_surface.log_message(f"❌ Error sending scene triggered S{scene_idx}: {e}")
 
     def _send_neotrellis_clip_grid(self):
-        """Send the colors of all clips in the 4x8 grid to the NeoTrellis with FULL RGB."""
-        if not self.c_surface._is_connected:
-            return
+        """Send/log the colors of all clips in the 4x8 grid to the NeoTrellis with FULL RGB."""
+        is_connected = getattr(self.c_surface, '_is_connected', False)
 
         grid_data = []
-        for track_idx in range(4): # 4 tracks (rows)
-            for scene_idx in range(8): # 8 scenes (cols)
+        track_count = min(GRID_HEIGHT, len(self.song.tracks)) if hasattr(self, 'song') else GRID_HEIGHT
+        scene_count = GRID_WIDTH
+
+        # Ensure we always generate GRID_HEIGHT x GRID_WIDTH entries (pad empty ones)
+        for track_idx in range(GRID_HEIGHT):  # 4 tracks (rows)
+            for scene_idx in range(GRID_WIDTH):  # 8 scenes (cols)
                 color = (0, 0, 0) # Default to black
 
-                # Get clip or track color
-                if self._clip_exists(track_idx, scene_idx):
+                # Only look up actual tracks/scenes that exist
+                if (track_idx < len(self.song.tracks) and
+                    scene_idx < len(self.song.tracks[track_idx].clip_slots) and
+                    self._clip_exists(track_idx, scene_idx)):
                     clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
                     clip = clip_slot.clip
 
@@ -1079,6 +1084,9 @@ class ClipManager:
             scene = pad_idx % 8
             self.c_surface.log_message(f"PAD[{pad_idx:02d}] T{track}S{scene}: RGB({r:3d},{g:3d},{b:3d})")
         self.c_surface.log_message("=" * 80)
+
+        if not is_connected:
+            return
 
         # Use enhanced encoder for full RGB support
         if self._color_mode == 'full_rgb':
@@ -1614,8 +1622,10 @@ class ClipManager:
             for scene_idx in self._scene_listeners.keys():
                 self.send_complete_scene_state(scene_idx)
 
-            self._send_grid_update()
-            
+            # Send complete grid with all colors
+            self.c_surface.log_message("🎨 Sending complete grid colors...")
+            self._send_neotrellis_clip_grid()
+
             self.c_surface.log_message("✅ Clip/scene state sent")
             
         except Exception as e:

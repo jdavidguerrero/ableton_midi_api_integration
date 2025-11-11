@@ -149,11 +149,13 @@ class TrackManager:
                 mixer.add_crossfade_assign_listener(crossfade_listener)
                 listeners.append(('crossfade_assign', crossfade_listener))
 
-            # Cue Volume (pre-listen/headphone monitoring)
-            if hasattr(mixer, 'cue_volume') and track == self.song.master_track:
-                cue_listener = lambda idx=track_idx: self._on_track_cue_volume_changed(idx)
-                mixer.cue_volume.add_value_listener(cue_listener)
-                listeners.append(('cue_volume', cue_listener))
+            # Cue Volume (solo/master headphone) - only available on master track
+            if track is self.song.master_track:
+                cue_control = getattr(mixer, 'cue_volume', None)
+                if cue_control:
+                    cue_listener = lambda idx=track_idx: self._on_track_cue_volume_changed(idx)
+                    cue_control.add_value_listener(cue_listener)
+                    listeners.append(('cue_volume', cue_listener))
 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting up mixer listeners for track {track_idx}: {e}")

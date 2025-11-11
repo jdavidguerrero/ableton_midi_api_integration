@@ -149,6 +149,13 @@ CMD_DRUM_PAD_STATE = 0x97       # Drum pad state (Live → Hardware)
 
 # Tempo nudge
 CMD_NUDGE = 0x98                # Tempo nudge up/down (Hardware → Live)
+CMD_TRANSPORT_STATE = 0x99      # Consolidated transport state (Live → Hardware)
+CMD_MIDI_NOTES = 0x9A           # Batched MIDI notes dump (Live → Hardware)
+CMD_MIDI_NOTE_ADD = 0x9B        # Insert MIDI note into clip (Hardware → Live)
+CMD_MIDI_NOTE_REMOVE = 0x9C     # Remove MIDI note(s) from clip (Hardware → Live)
+
+# Backward compatibility constant for legacy code paths
+CMD_TRANSPORT = CMD_TRANSPORT_STATE
 
 # ========================================
 # SYSTEM/NAVIGATION COMMANDS (0x60-0x6F)
@@ -211,8 +218,11 @@ CLIP_RECORDING = 3
 # ========================================
 # PUSH CLONE GRID CONFIGURATION
 # ========================================
-GRID_WIDTH = 8                  # 8 scenes (horizontal)
-GRID_HEIGHT = 4                 # 4 tracks (vertical)  
+# NeoTrellis M4 Layout:
+#   - 8 columnas (horizontal) = 8 TRACKS (incluyendo master)
+#   - 4 filas (vertical) = 4 SCENES
+GRID_WIDTH = 8                  # 8 tracks (horizontal)
+GRID_HEIGHT = 4                 # 4 scenes (vertical)
 TOTAL_PADS = 32                 # 8x4 = 32 pads
 
 # ========================================
@@ -285,5 +295,5 @@ LOG_PARAMETER_CHANGES = False
 # ========================================
 # PROTOCOL SETTINGS
 # ========================================
-MAX_SYSEX_SIZE = 64             # Maximum SysEx message size
+MAX_SYSEX_SIZE = 256            # Maximum SysEx message size (supports full-grid payloads)
 GRID_UPDATE_RATE_MS = 16        # ~60fps grid updates

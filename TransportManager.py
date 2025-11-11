@@ -89,19 +89,6 @@ class TransportManager:
             else:
                 self.c_surface.log_message("ℹ️ back_to_arrangement_listener not available (requires Live 9.0+)")
             
-            # === ADDITIONAL TRANSPORT PROPERTIES ===
-            
-            # Nudge up/down (if available)
-            if hasattr(self.song, 'nudge_up'):
-                nudge_up_listener = lambda: self._on_nudge_up()
-                self.song.add_nudge_up_listener(nudge_up_listener)
-                self._listeners.append(('nudge_up', nudge_up_listener))
-            
-            if hasattr(self.song, 'nudge_down'):
-                nudge_down_listener = lambda: self._on_nudge_down()
-                self.song.add_nudge_down_listener(nudge_down_listener)
-                self._listeners.append(('nudge_down', nudge_down_listener))
-            
             # === QUANTIZATION AND METRONOME ===
             
             # Metronome listener
@@ -146,10 +133,6 @@ class TransportManager:
                         self.song.remove_arrangement_overdub_listener(listener_func)
                     elif listener_type == 'back_to_arrangement':
                         self.song.remove_back_to_arrangement_listener(listener_func)
-                    elif listener_type == 'nudge_up':
-                        self.song.remove_nudge_up_listener(listener_func)
-                    elif listener_type == 'nudge_down':
-                        self.song.remove_nudge_down_listener(listener_func)
                     elif listener_type == 'metronome':
                         self.song.remove_metronome_listener(listener_func)
                 except:
@@ -206,7 +189,7 @@ class TransportManager:
                 if current_beat == 0:  # On downbeat
                     self.c_surface.log_message(f"⏱️ Position: Bar {current_bar + 1}, Beat {current_beat + 1}")
                 
-                self._send_transport_position(current_bar, current_beat, song_time)
+            self._send_transport_position(song_time)
     
     def _on_loop_start_changed(self):
         """Loop start position changed"""
@@ -236,18 +219,6 @@ class TransportManager:
             self.c_surface.log_message(f"🔙 Back to arrangement: {back_to_arrangement}")
             self._send_back_to_arrangement_state(back_to_arrangement)
     
-    def _on_nudge_up(self):
-        """Nudge up triggered"""
-        if self.c_surface._is_connected:
-            self.c_surface.log_message("⬆️ Nudge up")
-            self._send_nudge_event('up')
-    
-    def _on_nudge_down(self):
-        """Nudge down triggered"""
-        if self.c_surface._is_connected:
-            self.c_surface.log_message("⬇️ Nudge down")
-            self._send_nudge_event('down')
-    
     # ========================================
     # SEND METHODS
     # ========================================
@@ -276,17 +247,26 @@ class TransportManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending loop state: {e}")
     
-    def _send_transport_position(self, bar, beat, song_time):
+    def _send_transport_position(self, song_time):
         """Send transport position to hardware"""
         try:
-            # Calculate sixteenths
-            beat_fraction = song_time - int(song_time)
-            sixteenths = int(beat_fraction * 16)
+            numerator = max(1, int(self.song.signature_numerator))
+            denominator = max(1, int(self.song.signature_denominator))
+            quarter_per_beat = 4.0 / denominator
+            bar_length_quarters = numerator * quarter_per_beat
+            if bar_length_quarters <= 0:
+                bar_length_quarters = 4.0
+            
+            current_bar = int(song_time // bar_length_quarters)
+            beat_time = song_time - (current_bar * bar_length_quarters)
+            current_beat = int(beat_time // quarter_per_beat)
+            beat_fraction = beat_time - (current_beat * quarter_per_beat)
+            sixteenths = int((song_time - int(song_time)) * 16) & 0x7F
             
             payload = [
-                bar & 0x7F,          # Bar (0-127)
-                beat & 0x7F,         # Beat (0-127)
-                sixteenths & 0x7F    # Sixteenths (0-15)
+                current_bar & 0x7F,
+                current_beat & 0x7F,
+                sixteenths & 0x7F
             ]
             self.c_surface._send_sysex_command(CMD_TRANSPORT_POSITION, payload)
         except Exception as e:
@@ -299,14 +279,21 @@ class TransportManager:
             loop_length = self.song.loop_length
             loop_end = loop_start + loop_length
             
-            # Convert to bars/beats
-            beats_per_bar = self.song.signature_numerator
+            numerator = max(1, int(self.song.signature_numerator))
+            denominator = max(1, int(self.song.signature_denominator))
+            quarter_per_beat = 4.0 / denominator
+            bar_length_quarters = numerator * quarter_per_beat
+            if bar_length_quarters <= 0:
+                bar_length_quarters = 4.0
             
-            start_bar = int(loop_start) // beats_per_bar
-            start_beat = int(loop_start) % beats_per_bar
+            def _bars_and_beats(time_in_quarters):
+                bar = int(time_in_quarters // bar_length_quarters)
+                beat_time = time_in_quarters - (bar * bar_length_quarters)
+                beat = int(beat_time // quarter_per_beat)
+                return bar, beat
             
-            end_bar = int(loop_end) // beats_per_bar
-            end_beat = int(loop_end) % beats_per_bar
+            start_bar, start_beat = _bars_and_beats(loop_start)
+            end_bar, end_beat = _bars_and_beats(loop_end)
             
             # Send loop markers
             payload = [
@@ -335,16 +322,6 @@ class TransportManager:
             self.c_surface._send_sysex_command(CMD_BACK_TO_ARRANGER, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending back to arrangement: {e}")
-    
-    def _send_nudge_event(self, direction):
-        """Send nudge event to hardware"""
-        try:
-            direction_byte = 1 if direction == 'up' else 0
-            payload = [direction_byte]
-            self.c_surface._send_sysex_command(CMD_NUDGE, payload)
-            
-        except Exception as e:
-            self.c_surface.log_message(f"❌ Error sending nudge {direction}: {e}")
     
     def _send_complete_transport_state(self):
         """Send complete transport state using the existing method"""
@@ -472,9 +449,22 @@ class TransportManager:
             if hasattr(self.song, 'nudge_down'):
                 self.song.nudge_down()
                 self.c_surface.log_message("⬇️ Nudge tempo down")
+            else:
+                self.c_surface.log_message("⚠️ song.nudge_down not available")
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error nudging down: {e}")
+    
+    def handle_nudge_command(self, payload):
+        """Handle incoming tempo nudge commands"""
+        try:
+            direction_byte = payload[0] if payload else 0
+            if direction_byte == 1:
+                self.nudge_plus()
+            else:
+                self.nudge_minus()
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error handling nudge command: {e}")
     
     def toggle_arrangement_overdub(self):
         """Toggle arrangement overdub"""
@@ -550,7 +540,7 @@ class TransportManager:
             beats_per_bar = self.song.signature_numerator
             current_beat = int(current_time) % beats_per_bar
             current_bar = int(current_time) // beats_per_bar
-            self._send_transport_position(current_bar, current_beat, current_time)
+            self._send_transport_position(current_time)
             
             # Send loop markers
             self._send_loop_markers()
@@ -596,6 +586,8 @@ class TransportManager:
                     self.quantize_selected_clip(payload[0])
                 else:
                     self.quantize_selected_clip()
+            elif command == CMD_NUDGE:
+                self.handle_nudge_command(payload)
             else:
                 self.c_surface.log_message(f"❓ Unknown transport command: 0x{command:02X}")
                 

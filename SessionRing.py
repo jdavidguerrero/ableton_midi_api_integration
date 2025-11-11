@@ -15,16 +15,17 @@ class SessionRing:
     def __init__(self, control_surface):
         self.c_surface = control_surface
         self.song = control_surface.song()
+        self._session = getattr(control_surface, '_session', None)
         
         self.c_surface.log_message("🔧 Initializing SessionRing...")
         
         # Ring dimensions (tracks x scenes)
-        self.ring_width = 4   # tracks visible
-        self.ring_height = 8  # scenes visible
+        self.ring_width = control_surface.ring_width
+        self.ring_height = control_surface.ring_height
 
-        # Current ring position
-        self.track_offset = 0   # Starting track index
-        self.scene_offset = 0   # Starting scene index
+        # Ring offsets (track/scene indices for the window)
+        self.track_offset = 0
+        self.scene_offset = 0
 
         # Selection tracking
         self.selected_track_index = 0
@@ -38,8 +39,18 @@ class SessionRing:
         self._listeners = []
         self._is_active = False
         
+    def set_session_component(self, session_component):
+        """Assign SessionComponent once it has been created by PushClone."""
+        self._session = session_component
+        if session_component:
+            self.track_offset = session_component.track_offset()
+            self.scene_offset = session_component.scene_offset()
+
     def setup_listeners(self):
         """Setup ring-related listeners"""
+        if self._session is None:
+            self.c_surface.log_message("⚠️ SessionRing setup skipped: SessionComponent not ready yet")
+            return
         if self._is_active:
             return
             
@@ -67,6 +78,8 @@ class SessionRing:
             self._listeners.append(('scenes', scenes_listener))
             
             # Initialize ring position based on current selection
+            self.track_offset = self._session.track_offset()
+            self.scene_offset = self._session.scene_offset()
             self._update_ring_from_selection()
             
             self._is_active = True
@@ -108,65 +121,15 @@ class SessionRing:
     def _update_ring_from_selection(self):
         """Update ring position to follow selected track/scene"""
         try:
-            # Get current selection indices
-            selected_track = self.song.view.selected_track
-            selected_scene = self.song.view.selected_scene
-            
-            # Find track index
-            track_index = 0
-            for i, track in enumerate(self.song.tracks):
-                if track == selected_track:
-                    track_index = i
-                    break
-            
-            # Find scene index
-            scene_index = 0
-            for i, scene in enumerate(self.song.scenes):
-                if scene == selected_scene:
-                    scene_index = i
-                    break
-            
-            self.selected_track_index = track_index
-            self.selected_scene_index = scene_index
-            
-            # Update ring position to include selection
-            self._update_ring_to_include(track_index, scene_index)
+            # Cache current offsets from SessionComponent
+            self.track_offset = self._session.track_offset()
+            self.scene_offset = self._session.scene_offset()
+
+            # Inform hardware about the new ring window
+            self._send_ring_position()
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error updating ring from selection: {e}")
-    
-    def _update_ring_to_include(self, track_idx, scene_idx):
-        """Update ring position to include specified track/scene"""
-        old_track_offset = self.track_offset
-        old_scene_offset = self.scene_offset
-        
-        # Adjust track offset if needed
-        if track_idx < self.track_offset:
-            self.track_offset = track_idx
-        elif track_idx >= self.track_offset + self.ring_width:
-            self.track_offset = track_idx - self.ring_width + 1
-        
-        # Adjust scene offset if needed
-        if scene_idx < self.scene_offset:
-            self.scene_offset = scene_idx
-        elif scene_idx >= self.scene_offset + self.ring_height:
-            self.scene_offset = scene_idx - self.ring_height + 1
-        
-        # Clamp offsets to valid ranges
-        max_track_offset = max(0, len(self.song.tracks) - self.ring_width)
-        max_scene_offset = max(0, len(self.song.scenes) - self.ring_height)
-        
-        self.track_offset = max(0, min(self.track_offset, max_track_offset))
-        self.scene_offset = max(0, min(self.scene_offset, max_scene_offset))
-        
-        # Set the session highlight
-        self.c_surface.set_session_highlight(self.track_offset, self.scene_offset, self.ring_width, self.ring_height)
-        
-        # Send ring update if position changed
-        if (self.track_offset != old_track_offset or 
-            self.scene_offset != old_scene_offset):
-            self._send_ring_position()
-            self._send_ring_clips()
     
     def navigate_ring(self, direction):
         """
@@ -175,33 +138,30 @@ class SessionRing:
             direction (str): 'left', 'right', 'up', 'down'
         """
         try:
-            old_track_offset = self.track_offset
-            old_scene_offset = self.scene_offset
+            track_offset = self._session.track_offset()
+            scene_offset = self._session.scene_offset()
             
             if direction == 'left':
-                self.track_offset = max(0, self.track_offset - 1)
+                self._session.set_offsets(track_offset - 1, scene_offset)
             elif direction == 'right':
-                max_offset = max(0, len(self.song.tracks) - self.ring_width)
-                self.track_offset = min(max_offset, self.track_offset + 1)
+                self._session.set_offsets(track_offset + 1, scene_offset)
             elif direction == 'up':
-                self.scene_offset = max(0, self.scene_offset - 1)
+                self._session.set_offsets(track_offset, scene_offset - 1)
             elif direction == 'down':
-                max_offset = max(0, len(self.song.scenes) - self.ring_height)
-                self.scene_offset = min(max_offset, self.scene_offset + 1)
+                self._session.set_offsets(track_offset, scene_offset + 1)
             
-            # Update if position changed
-            if (self.track_offset != old_track_offset or 
-                self.scene_offset != old_scene_offset):
+            new_track_offset = self._session.track_offset()
+            new_scene_offset = self._session.scene_offset()
+
+            if (track_offset != new_track_offset or
+                scene_offset != new_scene_offset):
                 
                 self.c_surface.log_message(
-                    f"🎯 Ring navigated {direction}: T{self.track_offset} S{self.scene_offset}"
+                    f"🎯 Ring navigated {direction}: T{new_track_offset} S{new_scene_offset}"
                 )
                 
                 self._send_ring_position()
                 self._send_ring_clips()
-                
-                # Update selected track/scene if needed
-                self._update_selection_to_ring()
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error navigating ring {direction}: {e}")
@@ -328,14 +288,22 @@ class SessionRing:
     def _send_ring_clips(self):
         """Send all clips in current ring to hardware using a single grid message."""
         try:
+            self.c_surface.log_message(f"🔵 _send_ring_clips called (connected={self.c_surface._is_connected})")
+
             if not self.c_surface._is_connected:
+                self.c_surface.log_message("⚠️ Not connected, skipping ring clips")
                 return
-            
+
             # Get the clip manager and send the single, consolidated grid update
             clip_manager = self.c_surface.get_manager('clip')
+            self.c_surface.log_message(f"🔵 Got clip_manager: {clip_manager is not None}")
+
             if clip_manager:
+                self.c_surface.log_message("🔵 Calling clip_manager._send_neotrellis_clip_grid()")
                 clip_manager._send_neotrellis_clip_grid()
-            
+            else:
+                self.c_surface.log_message("⚠️ clip_manager is None!")
+
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending ring clips: {e}")
     
