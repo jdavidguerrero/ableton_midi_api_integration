@@ -1,7 +1,6 @@
 #!/bin/bash
-# 🟢 Ableton PushClone Script Updater (User Library)
-# Copia los archivos Python desde el repositorio del proyecto a la carpeta
-# real donde Ableton Live busca los Remote Scripts del usuario.
+# PushClone Script Updater - v1.0.5
+# Copia los archivos Python del proyecto a la carpeta de Remote Scripts de Ableton
 
 # === CONFIGURACIÓN ===
 SOURCE_DIR="/Users/juandavidguerrerocastro/Documents/PROJECTS/MUSIC_DEVICES/ableton_midi_api_integration"

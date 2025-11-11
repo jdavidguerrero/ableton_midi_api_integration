@@ -160,8 +160,9 @@ CMD_TRANSPORT = CMD_TRANSPORT_STATE
 # ========================================
 # SYSTEM/NAVIGATION COMMANDS (0x60-0x6F)
 # ========================================
-CMD_HANDSHAKE = 0x60            # Initial handshake
-CMD_HANDSHAKE_REPLY = 0x61      # Handshake response
+CMD_HANDSHAKE = 0x60            # Initial handshake (Hardware → Live)
+CMD_HANDSHAKE_REPLY = 0x61      # Handshake response (Live → Hardware)
+CMD_DISCONNECT = 0xB0           # Disconnect notification (Live → Hardware when script closes)
 CMD_VIEW_STATE = 0x62           # Complete view state dump
 CMD_PING_TEST = 0x63            # MIDI connection test
 CMD_SELECTED_TRACK = 0x64       # Selected track change (Live → Teensy)
@@ -214,6 +215,7 @@ CLIP_EMPTY = 0
 CLIP_PLAYING = 1
 CLIP_QUEUED = 2
 CLIP_RECORDING = 3
+CLIP_STOPPED = 4  # Clip exists but not playing (shows original clip color)
 
 # ========================================
 # PUSH CLONE GRID CONFIGURATION
@@ -247,12 +249,13 @@ LIVE_COLORS = {
     15: (0, 0, 0),       # Black
 }
 
-# Clip state colors
+# Clip state colors (for reference - actual colors calculated in MIDIUtils.py)
 CLIP_STATE_COLORS = {
     CLIP_EMPTY: (0, 0, 0),           # Off
-    CLIP_PLAYING: (76, 255, 76),     # Green
-    CLIP_QUEUED: (255, 255, 76),     # Yellow
-    CLIP_RECORDING: (255, 76, 76),   # Red
+    CLIP_STOPPED: None,              # Uses original clip color (calculated)
+    CLIP_PLAYING: (76, 255, 76),     # Green (calculated from base color)
+    CLIP_QUEUED: (255, 255, 76),     # Yellow (calculated from base color)
+    CLIP_RECORDING: (255, 76, 76),   # Red (calculated from base color)
 }
 
 # ========================================

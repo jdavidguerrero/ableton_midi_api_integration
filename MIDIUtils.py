@@ -124,9 +124,9 @@ class SysExEncoder:
 
         payload = []
         for pad_idx, (r, g, b) in enumerate(grid_data):
-            # Calculate row/col for display
-            track = pad_idx // 8  # 0-3 (4 tracks)
-            scene = pad_idx % 8   # 0-7 (8 scenes)
+            # Calculate row/col for display (FIXED: was backwards)
+            track = pad_idx % 8   # 0-7 (8 tracks) - columns
+            scene = pad_idx // 8  # 0-3 (4 scenes) - rows
 
             encoded = ColorEncoder.encode_rgb_14bit(r, g, b)
             payload.extend(encoded)
@@ -269,10 +269,10 @@ class ColorUtils:
 
         state_names = {
             0: 'EMPTY',
-            1: 'STOPPED',
-            2: 'PLAYING',
-            3: 'QUEUED',
-            4: 'RECORDING'
+            1: 'PLAYING',
+            2: 'QUEUED',
+            3: 'RECORDING',
+            4: 'STOPPED'
         }
 
         if state == CLIP_PLAYING:

@@ -205,7 +205,7 @@ class SessionRing:
                 
                 if track_index != old_index:
                     self.c_surface.log_message(f"🎯 Track selection changed: {track_index}")
-                    self._update_ring_to_include(track_index, self.selected_scene_index)
+                    self._update_ring_from_selection()
                     self._send_track_selection(track_index)
                 
             except Exception as e:
@@ -228,7 +228,7 @@ class SessionRing:
                 
                 if scene_index != old_index:
                     self.c_surface.log_message(f"🎯 Scene selection changed: {scene_index}")
-                    self._update_ring_to_include(self.selected_track_index, scene_index)
+                    self._update_ring_from_selection()
                     self._send_scene_selection(scene_index)
                 
             except Exception as e:

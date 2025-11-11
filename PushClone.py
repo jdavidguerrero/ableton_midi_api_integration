@@ -125,6 +125,18 @@ class PushClone(ControlSurface):
     def disconnect(self):
         """Cleanup and disconnect"""
         self.log_message("👋 PushClone Orchestrator Disconnecting...")
+
+        # Notify hardware of disconnection BEFORE cleanup
+        try:
+            if self._is_connected:
+                self.log_message("📡 Sending disconnect notification to hardware...")
+                # Send disconnect command with empty payload
+                self._send_sysex_command(CMD_DISCONNECT, [])
+                self._is_connected = False
+        except Exception as e:
+            self.log_message(f"⚠️ Error sending disconnect notification: {e}")
+
+        # Now cleanup managers
         self._cleanup_all_managers()
         ControlSurface.disconnect(self)
 

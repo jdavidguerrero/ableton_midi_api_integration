@@ -697,7 +697,7 @@ class ClipManager:
             elif hasattr(clip_slot, 'is_recording') and clip_slot.is_recording:
                 state = CLIP_RECORDING
             else:
-                state = CLIP_EMPTY
+                state = CLIP_STOPPED  # Has clip but not playing
 
             # Get color (clip color if exists, otherwise track color)
             if clip_slot.has_clip:
@@ -1038,12 +1038,14 @@ class ClipManager:
         is_connected = getattr(self.c_surface, '_is_connected', False)
 
         grid_data = []
-        track_count = min(GRID_HEIGHT, len(self.song.tracks)) if hasattr(self, 'song') else GRID_HEIGHT
-        scene_count = GRID_WIDTH
+        # GRID_WIDTH = 8 tracks (horizontal), GRID_HEIGHT = 4 scenes (vertical)
+        track_count = min(GRID_WIDTH, len(self.song.tracks)) if hasattr(self, 'song') else GRID_WIDTH
+        scene_count = GRID_HEIGHT
 
-        # Ensure we always generate GRID_HEIGHT x GRID_WIDTH entries (pad empty ones)
-        for track_idx in range(GRID_HEIGHT):  # 4 tracks (rows)
-            for scene_idx in range(GRID_WIDTH):  # 8 scenes (cols)
+        # Build grid row by row (scene by scene), with tracks as columns
+        # Physical layout: each row is a scene, each column is a track
+        for scene_idx in range(GRID_HEIGHT):  # 4 scenes (rows)
+            for track_idx in range(GRID_WIDTH):  # 8 tracks (cols)
                 color = (0, 0, 0) # Default to black
 
                 # Only look up actual tracks/scenes that exist
@@ -1061,7 +1063,7 @@ class ClipManager:
                     elif hasattr(clip_slot, 'is_recording') and clip_slot.is_recording:
                         state = CLIP_RECORDING
                     else:
-                        state = 1  # Has clip but not playing
+                        state = CLIP_STOPPED  # Has clip but not playing
 
                     # Get base color
                     base_color = ColorUtils.live_color_to_rgb(clip.color)
@@ -1070,8 +1072,9 @@ class ClipManager:
                     color = ColorUtils.get_clip_state_color(state, base_color)
                 else:
                     # Empty slot - use dim track color
-                    track_color = ColorUtils.live_color_to_rgb(self.song.tracks[track_idx].color)
-                    color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
+                    if track_idx < len(self.song.tracks):
+                        track_color = ColorUtils.live_color_to_rgb(self.song.tracks[track_idx].color)
+                        color = (track_color[0] // 8, track_color[1] // 8, track_color[2] // 8)
 
                 grid_data.append(color)
 
@@ -1080,8 +1083,8 @@ class ClipManager:
         self.c_surface.log_message(f"GRID_COLORS: Sending {len(grid_data)} pads")
         self.c_surface.log_message("=" * 80)
         for pad_idx, (r, g, b) in enumerate(grid_data):
-            track = pad_idx // 8
-            scene = pad_idx % 8
+            scene = pad_idx // GRID_WIDTH  # Which row (scene)
+            track = pad_idx % GRID_WIDTH   # Which column (track)
             self.c_surface.log_message(f"PAD[{pad_idx:02d}] T{track}S{scene}: RGB({r:3d},{g:3d},{b:3d})")
         self.c_surface.log_message("=" * 80)
 
