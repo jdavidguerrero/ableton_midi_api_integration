@@ -286,7 +286,7 @@ class PushClone(ControlSurface):
             if not already_connected:
                 self._is_connected = True
                 self.log_message(f"✅ Connection established ({reason})")
-                self._cancel_handshake_retry()
+                self._confirm_handshake(reason)
             else:
                 self.log_message(f"ℹ️ Connection already active ({reason})")
 
@@ -325,12 +325,12 @@ class PushClone(ControlSurface):
                         # Don't return - this is often a false positive due to encoding issues
                         # Instead, log it but continue sending
                 
-                                # Validate all MIDI bytes are in valid range (0-127), ignoring header and footer                           
-                                invalid_bytes = [b for b in message[4:-1] if b < 0 or b > 127]                                             
-                                if invalid_bytes:                            
-                                    if not silent:                           
-                                        self.log_message(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: {invalid_bytes}")        
-                                    return                
+                # Validate all MIDI bytes are in valid range (0-127), ignoring header and footer
+                invalid_bytes = [b for b in message[4:-1] if b < 0 or b > 127]
+                if invalid_bytes:
+                    if not silent:
+                        self.log_message(f"❌ Invalid MIDI bytes in SysEx payload 0x{command:02X}: {invalid_bytes}")
+                    return                
                 try:
                     # Use message coalescer for performance optimization
                     if self._message_coalescer and not priority:
@@ -476,7 +476,7 @@ class PushClone(ControlSurface):
             self.log_message(f"❌ Error handling SysEx: {e}")
     
     def _route_command(self, command, payload):
-        """Route SysEx command to appropriate manager"""
+        """Route SysEx command to appropriate manager based on the new 7-bit command map."""
         try:
             # Auto-connect: if we're receiving valid commands from hardware, we're connected
             if not self._is_connected and command != CMD_HANDSHAKE:
@@ -484,60 +484,67 @@ class PushClone(ControlSurface):
                 self._establish_connection(f"auto-connect (cmd 0x{command:02X})", refresh=True)
                 self._confirm_handshake(f"auto-connect cmd 0x{command:02X}")
 
-            # View switching
-            if command == CMD_SWITCH_VIEW:
-                self._handle_view_switch(payload)
+            # SYSTEM & NAVIGATION COMMANDS (0x00-0x0F)
+            if 0x00 <= command <= 0x0F:
+                system_handlers = {
+                    CMD_HANDSHAKE: self._handle_handshake_command,
+                    CMD_HANDSHAKE_REPLY: self._handle_handshake_command,
+                    CMD_PING_TEST: self._handle_handshake_command,
+                    CMD_SWITCH_VIEW: self._handle_view_switch,
+                    CMD_RING_NAVIGATE: self._session_ring.handle_navigation_command,
+                    CMD_RING_SELECT: self._session_ring.handle_navigation_command,
+                    CMD_RING_POSITION: self._session_ring.handle_navigation_command,
+                    CMD_TRACK_SELECT: self._session_ring.handle_navigation_command,
+                    CMD_SCENE_SELECT: self._session_ring.handle_navigation_command,
+                    CMD_SESSION_MODE: self.handle_session_navigation_command,
+                }
+                handler = system_handlers.get(command)
+                if handler:
+                    if command == CMD_SWITCH_VIEW:
+                        handler(payload)
+                    else:
+                        handler(command, payload)
+                else:
+                    self._managers['browser'].handle_navigation_command(command, payload)
 
-            # Clip/Scene commands (0x10-0x1F)
+            # CLIP & SCENE COMMANDS (0x10-0x1F)
             elif 0x10 <= command <= 0x1F:
-                self._handle_clip_command(command, payload)
+                self._managers['clip'].handle_clip_command(command, payload)
 
-            # Mixer/Track commands (0x20-0x2F)
+            # MIXER & TRACK COMMANDS (0x20-0x2F)
             elif 0x20 <= command <= 0x2F:
-                self._handle_mixer_command(command, payload)
+                self._managers['track'].handle_mixer_command(command, payload)
 
-            # Device/Plugin commands (0x30-0x3F)
+            # DEVICE & PLUGIN COMMANDS (0x30-0x3F)
             elif 0x30 <= command <= 0x3F:
-                self._handle_device_command(command, payload)
+                self._managers['device'].handle_device_command(command, payload)
 
-            # Transport/Automation commands (0x40-0x4F)
+            # TRANSPORT & AUTOMATION (0x40-0x4F)
             elif 0x40 <= command <= 0x4F:
                 self._managers['transport'].handle_transport_command(command, payload)
                 self._managers['automation'].handle_automation_command(command, payload)
 
-            # Note/Scale/Sequencer commands (0x50-0x5F)
+            # NOTE, SCALE & SEQUENCER (0x50-0x5F)
             elif 0x50 <= command <= 0x5F:
-                self._handle_note_command(command, payload)
                 self._managers['step_sequencer'].handle_step_sequencer_command(command, payload)
+                self._handle_note_command(command, payload)
 
-            # System/Navigation commands (0x60-0x6F)
+            # GRID, GROOVE & QUANTIZATION (0x60-0x6F)
             elif 0x60 <= command <= 0x6F:
-                self.log_message(f"🔵 Routing navigation command 0x{command:02X}")
-                navigation_handlers = {
-                    CMD_HANDSHAKE: self._handle_handshake_command,
-                    CMD_HANDSHAKE_REPLY: self._handle_handshake_command,
-                    CMD_PING_TEST: self._handle_handshake_command,
-                    CMD_RING_NAVIGATE: self._session_ring.handle_navigation_command,
-                    CMD_RING_SELECT: self._session_ring.handle_navigation_command,
-                    CMD_RING_POSITION: self._session_ring.handle_navigation_command,
-                }
-                handler = navigation_handlers.get(command)
-                if handler:
-                    if command in [CMD_RING_NAVIGATE, CMD_RING_SELECT, CMD_RING_POSITION]:
-                        self.log_message(f"🔵 Sending to SessionRing: CMD=0x{command:02X}")
-                    handler(command, payload)
+                if command in [CMD_GRID_PAD_PRESS]:
+                    # This needs to be routed to the correct manager based on view
+                    self._managers['clip'].handle_grid_press(command, payload)
+                elif command in [CMD_QUANTIZE_NOTES, CMD_QUANTIZE_CLIP, CMD_MIDI_CLIP_QUANTIZE, CMD_RECORD_QUANTIZATION, CMD_TRANSPORT_QUANTIZE]:
+                    self._managers['automation'].handle_automation_command(command, payload)
+                elif command in [CMD_GROOVE_AMOUNT, CMD_GROOVE_TEMPLATE]:
+                    self._managers['groove_pool'].handle_groove_command(command, payload)
                 else:
-                    # If not a specific system/ring command, try browser manager
-                    self._managers['browser'].handle_navigation_command(command, payload)
+                    self.log_message(f"❓ Unhandled Grid/Groove command: 0x{command:02X}")
 
-            # Song/Clip actions (0x70-0x7F)
+            # SONG & CLIP ACTIONS (0x70-0x7F)
             elif 0x70 <= command <= 0x7F:
                 self._handle_song_creation_command(command, payload)
                 self.handle_session_navigation_command(command, payload)
-            
-            # Streaming/real-time commands (0x90-0x9F)
-            elif 0x90 <= command <= 0x9F:
-                self._handle_streaming_command(command, payload)
 
             else:
                 self.log_message(f"❓ Unknown command: 0x{command:02X}")

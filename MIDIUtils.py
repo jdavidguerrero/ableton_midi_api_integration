@@ -139,7 +139,18 @@ class SysExEncoder:
             logger(f"GRID_ENCODE: Total payload size: {len(payload)} bytes (expected: 192)")
             logger("=" * 80)
 
-        return SysExEncoder.create_sysex(CMD_NEOTRELLIS_CLIP_GRID, payload)
+        return SysExEncoder.create_sysex(CMD_GRID_UPDATE, payload)
+
+    @staticmethod
+    def encode_grid_single_pad(pad_index, color):
+        """
+        Encodes a single pad update with full 24-bit RGB color.
+        """
+        r, g, b = color
+        payload = [pad_index & 0x7F]
+        encoded_color = ColorEncoder.encode_rgb_14bit(r, g, b)
+        payload.extend(encoded_color)
+        return SysExEncoder.create_sysex(CMD_GRID_SINGLE_PAD, payload)
 
     @staticmethod
     def encode_clip_state_full_rgb(track, scene, state, color):

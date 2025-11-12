@@ -413,17 +413,15 @@ class ClipManager:
                     clip_key = (track_idx, scene_idx)
                     if clip_key in self._clip_listeners:
                         listeners = self._clip_listeners[clip_key]
-                        self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
-            
             self._send_clip_state(track_idx, scene_idx)
-            self._send_neotrellis_clip_grid()
+            self._send_single_pad_update(track_idx, scene_idx)
     
     def _on_clip_playing_changed(self, track_idx, scene_idx):
         """Clip playing status changed"""
         if self.c_surface._is_connected:
             self.c_surface.log_message(f"▶️ Clip T{track_idx}S{scene_idx} playing status changed")
             self._send_clip_state(track_idx, scene_idx)
-            self._send_neotrellis_clip_grid()
+            self._send_single_pad_update(track_idx, scene_idx)
     
     def _on_clip_fired_changed(self, track_idx, scene_idx):
         """Handle clip fired/queued status change"""
@@ -434,6 +432,7 @@ class ClipManager:
                 
                 # Send clip queued state to hardware
                 self._send_clip_queued_state(track_idx, scene_idx, is_fired)
+                self._send_single_pad_update(track_idx, scene_idx)
                 
                 if LOG_LISTENER_EVENTS:
                     self.c_surface.log_message(f"🎯 Clip T{track_idx}S{scene_idx} fired/queued: {is_fired}")
@@ -469,7 +468,7 @@ class ClipManager:
             color_rgb = ColorUtils.live_color_to_rgb(clip.color)
             self.c_surface.log_message(f"🎨 Clip T{track_idx}S{scene_idx} color: {color_rgb}")
             self._send_clip_state(track_idx, scene_idx)  # Send full state with new color
-            self._send_neotrellis_clip_grid()
+            self._send_single_pad_update(track_idx, scene_idx)
     
     def _on_clip_loop_changed(self, track_idx, scene_idx):
         """Clip loop state changed"""
@@ -1032,6 +1031,59 @@ class ClipManager:
             self.c_surface._send_sysex_command(CMD_SCENE_IS_TRIGGERED, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending scene triggered S{scene_idx}: {e}")
+
+    def _send_single_pad_update(self, track_idx, scene_idx):
+        """Calculate and send the state/color of a single pad if it's visible."""
+        session_ring = self.c_surface.get_manager('session_ring')
+        if not session_ring:
+            return
+
+        # Check if the changed clip is within the visible ring
+        track_offset = session_ring.track_offset
+        scene_offset = session_ring.scene_offset
+        
+        if not (track_offset <= track_idx < track_offset + GRID_WIDTH and
+                scene_offset <= scene_idx < scene_offset + GRID_HEIGHT):
+            return # Change is outside the visible grid, do nothing
+
+        # Calculate the pad's color
+        color = (0, 0, 0)
+        try:
+            track = self.song.tracks[track_idx]
+            clip_slot = track.clip_slots[scene_idx]
+
+            if clip_slot.has_clip:
+                clip = clip_slot.clip
+                if clip_slot.is_playing:
+                    state = CLIP_PLAYING
+                elif clip_slot.is_triggered:
+                    state = CLIP_QUEUED
+                elif hasattr(clip_slot, 'is_recording') and clip_slot.is_recording:
+                    state = CLIP_RECORDING
+                else:
+                    state = CLIP_STOPPED
+                
+                base_color = ColorUtils.live_color_to_rgb(clip.color)
+                color = ColorUtils.get_clip_state_color(state, base_color)
+            else:
+                color = NEOTRELLIS_EMPTY_PAD_COLOR
+
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error calculating single pad color T{track_idx}S{scene_idx}: {e}")
+            color = (0, 0, 0)
+
+        # Calculate pad index (0-31)
+        grid_x = track_idx - track_offset
+        grid_y = scene_idx - scene_offset
+        pad_index = grid_y * GRID_WIDTH + grid_x
+
+        # Send the single pad update
+        message = SysExEncoder.encode_grid_single_pad(pad_index, color)
+        if message:
+            self.c_surface._send_midi(tuple(message))
+            if DEBUG_ENABLED:
+                r, g, b = color
+                self.c_surface.log_message(f"🎨 Sent single pad update for T{track_idx}S{scene_idx} (Pad {pad_index}) -> RGB({r},{g},{b})")
 
     def _send_neotrellis_clip_grid(self, track_start=None, scene_start=None):
         """Send/log the colors of the current 4x8 ring window to the NeoTrellis with FULL RGB."""

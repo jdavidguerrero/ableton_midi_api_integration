@@ -143,11 +143,11 @@ class SessionRing:
             scene_offset = self._session.scene_offset()
             
             if direction == 'left':
-                self._session.set_offsets(track_offset - 1, scene_offset)
+                self._session.set_offsets(max(0, track_offset - 1), scene_offset)
             elif direction == 'right':
                 self._session.set_offsets(track_offset + 1, scene_offset)
             elif direction == 'up':
-                self._session.set_offsets(track_offset, scene_offset - 1)
+                self._session.set_offsets(track_offset, max(0, scene_offset - 1))
             elif direction == 'down':
                 self._session.set_offsets(track_offset, scene_offset + 1)
             
@@ -156,6 +156,10 @@ class SessionRing:
 
             if (track_offset != new_track_offset or
                 scene_offset != new_scene_offset):
+                
+                # Update self properties before sending updates
+                self.track_offset = new_track_offset
+                self.scene_offset = new_scene_offset
                 
                 self.c_surface.log_message(
                     f"🎯 Ring navigated {direction}: T{new_track_offset} S{new_scene_offset}"

@@ -7,7 +7,7 @@ Supports all views: Clip, Mixer, Device, Note
 # SysEx Header (Universal Non-Commercial) 
 SYSEX_HEADER = (0xF0, 0x7F, 0x00, 0x7F)
 SYSEX_END = 0xF7
-SCRIPT_VERSION = "1.0.9"
+SCRIPT_VERSION = "1.1.0"
 
 # ========================================
 # SYSTEM & NAVIGATION COMMANDS (0x00-0x0F)
