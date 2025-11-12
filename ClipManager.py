@@ -723,6 +723,18 @@ class ClipManager:
 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending clip state T{track_idx}S{scene_idx}: {e}")
+
+    def _send_clip_queued_state(self, track_idx, scene_idx, is_fired):
+        """Send clip queued state to hardware using track fired slot command."""
+        try:
+            track_val = max(0, min(127, int(track_idx)))
+            slot_val = max(0, min(127, int(scene_idx))) if is_fired else 127
+            payload = [track_val, slot_val]
+            self.c_surface._send_sysex_command(CMD_TRACK_FIRED_SLOT, payload)
+        except Exception as e:
+            self.c_surface.log_message(
+                f"❌ Error sending clip queued state T{track_idx}S{scene_idx}: {e}"
+            )
     
     def _send_clip_name(self, track_idx, scene_idx, name):
         """Send clip name to hardware"""
@@ -1084,6 +1096,50 @@ class ClipManager:
             if DEBUG_ENABLED:
                 r, g, b = color
                 self.c_surface.log_message(f"🎨 Sent single pad update for T{track_idx}S{scene_idx} (Pad {pad_index}) -> RGB({r},{g},{b})")
+
+    def handle_track_fired_slot(self, track_idx, scene_idx):
+        """Called from TrackManager when a fired slot changes."""
+        try:
+            if scene_idx < 0 or track_idx < 0:
+                return
+            self.ensure_region_monitored(track_idx, 1, scene_idx, 1)
+            self._send_clip_state(track_idx, scene_idx)
+            self._send_single_pad_update(track_idx, scene_idx)
+        except Exception as e:
+            self.c_surface.log_message(
+                f"❌ Error handling fired slot for T{track_idx}S{scene_idx}: {e}"
+            )
+
+    def handle_track_playing_slot(self, track_idx, scene_idx):
+        """Called from TrackManager when a playing slot changes."""
+        try:
+            if track_idx < 0:
+                return
+
+            if scene_idx is None or scene_idx < 0:
+                # Track stopped: refresh visible pads for this track
+                session_ring = self.c_surface.get_manager('session_ring')
+                if not session_ring:
+                    return
+                start_scene = session_ring.scene_offset
+                end_scene = start_scene + GRID_HEIGHT
+                for s_idx in range(start_scene, min(end_scene, len(self.song.scenes))):
+                    if (track_idx < len(self.song.tracks) and
+                        s_idx < len(self.song.scenes)):
+                        self._send_clip_state(track_idx, s_idx)
+                        self._send_single_pad_update(track_idx, s_idx)
+                return
+
+            self.ensure_region_monitored(track_idx, 1, scene_idx, 1)
+            if (track_idx < len(self.song.tracks) and
+                scene_idx < len(self.song.scenes)):
+                self._send_clip_state(track_idx, scene_idx)
+                self._send_single_pad_update(track_idx, scene_idx)
+
+        except Exception as e:
+            self.c_surface.log_message(
+                f"❌ Error handling playing slot for T{track_idx}S{scene_idx}: {e}"
+            )
 
     def _send_neotrellis_clip_grid(self, track_start=None, scene_start=None):
         """Send/log the colors of the current 4x8 ring window to the NeoTrellis with FULL RGB."""

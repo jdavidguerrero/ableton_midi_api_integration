@@ -263,6 +263,7 @@ class TrackManager:
             playing_slot = track.playing_slot_index
             self.c_surface.log_message(f"▶️ Track {track_idx} playing slot: {playing_slot}")
             self._send_track_playing_slot(track_idx, playing_slot)
+            self._notify_clip_manager_playing_slot(track_idx, playing_slot)
     
     def _on_track_fired_slot_changed(self, track_idx):
         """Track fired slot changed"""
@@ -271,6 +272,7 @@ class TrackManager:
             fired_slot = track.fired_slot_index
             self.c_surface.log_message(f"🔥 Track {track_idx} fired slot: {fired_slot}")
             self._send_track_fired_slot(track_idx, fired_slot)
+            self._notify_clip_manager_fired_slot(track_idx, fired_slot)
     
     def _on_track_fold_changed(self, track_idx):
         """Track fold state changed"""
@@ -539,6 +541,28 @@ class TrackManager:
             self.c_surface._send_sysex_command(CMD_TRACK_FIRED_SLOT, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track fired slot T{track_idx}: {e}")
+
+    def _notify_clip_manager_fired_slot(self, track_idx, fired_slot):
+        """Let ClipManager refresh pad state based on fired slot changes."""
+        try:
+            clip_manager = self.c_surface.get_manager('clip')
+            if not clip_manager or not hasattr(clip_manager, 'handle_track_fired_slot'):
+                return
+            if fired_slot is None or fired_slot < 0 or fired_slot > 127:
+                return
+            clip_manager.handle_track_fired_slot(track_idx, fired_slot)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error notifying clip manager about fired slot: {e}")
+
+    def _notify_clip_manager_playing_slot(self, track_idx, playing_slot):
+        """Let ClipManager refresh pad state based on playing slot changes."""
+        try:
+            clip_manager = self.c_surface.get_manager('clip')
+            if not clip_manager or not hasattr(clip_manager, 'handle_track_playing_slot'):
+                return
+            clip_manager.handle_track_playing_slot(track_idx, playing_slot)
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error notifying clip manager about playing slot: {e}")
     
     def _send_track_fold_state(self, track_idx, is_folded):
         """Send track fold state to hardware"""

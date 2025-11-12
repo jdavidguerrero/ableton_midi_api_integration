@@ -228,8 +228,7 @@ class SongManager:
         """Song position changed"""
         if self.c_surface._is_connected:
             song_time = self.song.current_song_time
-            # Only log occasionally to avoid spam
-            if int(song_time) % 4 == 0:  # Every 4 beats
+            if LOG_SONG_POSITION_UPDATES and int(song_time) % 4 == 0:
                 self.c_surface.log_message(f"⏱️ Position: {song_time:.2f} beats")
             self._send_song_position_state(song_time)
     

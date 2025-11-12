@@ -130,6 +130,17 @@ CMD_STEP_COPY_PAGE = 0x5E       # Copy page (Teensy → Live)
 CMD_LOOP_MARKERS = 0x5F         # Loop markers (start/end) (bidirectional)
 
 # ========================================
+# STREAMING DATA COMMANDS (0x90-0x9F)
+# ========================================
+CMD_TRACK_METER = 0x90          # Track output meter level (Live → Hardware, throttled 20Hz)
+CMD_TRACK_CUE_VOLUME = 0x91     # Track cue/pre-listen volume (bidirectional)
+CMD_CLIP_PLAYING_POSITION = 0x92 # Clip playing position (Live → Hardware, throttled 20Hz)
+CMD_CLIP_LOOP_START = 0x93      # Clip loop start position (bidirectional)
+CMD_CLIP_LOOP_END = 0x94        # Clip loop end position (bidirectional)
+CMD_CLIP_LENGTH = 0x95          # Clip length in beats (Live → Hardware)
+CMD_CLIP_IS_RECORDING = 0x96    # ClipSlot recording state (Live → Hardware)
+
+# ========================================
 # GRID, GROOVE & QUANTIZATION (0x60-0x6F)
 # ========================================
 CMD_GRID_UPDATE = 0x60          # Full 8x4 grid color update (Live → Hardware)
@@ -292,6 +303,7 @@ LOG_LISTENER_EVENTS = True # Enable for debugging
 LOG_VIEW_SWITCHES = True
 LOG_PARAMETER_CHANGES = False
 ENABLE_CPU_USAGE_STREAM = False  # Disable CPU usage SysEx until firmware supports it reliably
+LOG_SONG_POSITION_UPDATES = False
 
 # ========================================
 # PROTOCOL SETTINGS

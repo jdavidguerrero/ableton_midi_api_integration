@@ -128,6 +128,7 @@ class SessionRing:
             # Inform hardware about the new ring window
             self._send_ring_position()
             self._send_ring_clips()
+            self._ensure_clip_region_monitored()
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error updating ring from selection: {e}")
@@ -167,6 +168,7 @@ class SessionRing:
                 
                 self._send_ring_position()
                 self._send_ring_clips()
+                self._ensure_clip_region_monitored()
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error navigating ring {direction}: {e}")
@@ -542,9 +544,24 @@ class SessionRing:
             self._send_ring_clips()
             self._send_track_selection(self.selected_track_index)
             self._send_scene_selection(self.selected_scene_index)
+            self._ensure_clip_region_monitored()
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending ring state: {e}")
+
+    def _ensure_clip_region_monitored(self):
+        """Instruct ClipManager to monitor the current ring window."""
+        try:
+            clip_manager = self.c_surface.get_manager('clip')
+            if clip_manager and hasattr(clip_manager, 'ensure_region_monitored'):
+                clip_manager.ensure_region_monitored(
+                    self.track_offset,
+                    self.ring_width,
+                    self.scene_offset,
+                    self.ring_height
+                )
+        except Exception as e:
+            self.c_surface.log_message(f"❌ Error ensuring clip region monitored: {e}")
     
     def handle_navigation_command(self, command, payload):
         """Handle navigation commands from hardware"""

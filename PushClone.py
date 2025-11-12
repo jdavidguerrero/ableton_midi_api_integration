@@ -65,6 +65,7 @@ class PushClone(ControlSurface):
         self._handshake_retry_active = False
         self._handshake_confirmed = False
         self._handshake_retry_interval_ticks = 60  # ~1 second at 60fps
+        self._frame_count = 0
 
         # Current selections and state
         self._current_track = 0
@@ -466,7 +467,7 @@ class PushClone(ControlSurface):
                 return
             
             # Log sequence number for debugging
-            if DEBUG_ENABLED:
+            if DEBUG_ENABLED and command != CMD_TRANSPORT_POSITION:
                 self.log_message(f"📨 SysEx CMD:{command:02X} SEQ:{sequence} LEN:{payload_length}")
             
             # Route command to appropriate manager
