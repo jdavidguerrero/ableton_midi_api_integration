@@ -558,9 +558,16 @@ class TrackManager:
         """Let ClipManager refresh pad state based on playing slot changes."""
         try:
             clip_manager = self.c_surface.get_manager('clip')
-            if not clip_manager or not hasattr(clip_manager, 'handle_track_playing_slot'):
+            if not clip_manager:
                 return
-            clip_manager.handle_track_playing_slot(track_idx, playing_slot)
+            if playing_slot is None or playing_slot < 0:
+                handler = getattr(clip_manager, 'handle_track_stopped', None)
+                if handler:
+                    handler(track_idx)
+            else:
+                handler = getattr(clip_manager, 'handle_track_playing_slot', None)
+                if handler:
+                    handler(track_idx, playing_slot)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error notifying clip manager about playing slot: {e}")
     

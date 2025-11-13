@@ -19,6 +19,7 @@ class ClipManager:
         self._clip_listeners = {}  # (track_idx, scene_idx): [listeners]
         self._scene_listeners = {}  # scene_idx: [listeners]
         self._is_active = False
+        self._track_last_playing = {}
 
         self.c_surface.log_message("🔧 Initializing ClipManager...")
 
@@ -676,7 +677,7 @@ class ClipManager:
     # SEND METHODS
     # ========================================
     
-    def _send_clip_state(self, track_idx, scene_idx):
+    def _send_clip_state(self, track_idx, scene_idx, force_state=None, color_override=None):
         """Send complete clip state to hardware"""
         try:
             if (track_idx >= len(self.song.tracks) or
@@ -687,7 +688,9 @@ class ClipManager:
             clip_slot = track.clip_slots[scene_idx]
 
             # Determine clip state
-            if not clip_slot.has_clip:
+            if force_state is not None:
+                state = force_state
+            elif not clip_slot.has_clip:
                 state = CLIP_EMPTY
             elif clip_slot.is_playing:
                 state = CLIP_PLAYING
@@ -705,7 +708,10 @@ class ClipManager:
                 color = ColorUtils.live_color_to_rgb(track.color)
 
             # Calculate final LED color based on state
-            final_color = ColorUtils.get_clip_state_color(state, color)
+            if color_override is not None:
+                final_color = color_override
+            else:
+                final_color = ColorUtils.get_clip_state_color(state, color)
 
             if self._color_mode == 'full_rgb':
                 # Use the primary encoder for full 24-bit RGB color
@@ -1044,7 +1050,7 @@ class ClipManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending scene triggered S{scene_idx}: {e}")
 
-    def _send_single_pad_update(self, track_idx, scene_idx):
+    def _send_single_pad_update(self, track_idx, scene_idx, force_state=None, color_override=None):
         """Calculate and send the state/color of a single pad if it's visible."""
         session_ring = self.c_surface.get_manager('session_ring')
         if not session_ring:
@@ -1066,7 +1072,9 @@ class ClipManager:
 
             if clip_slot.has_clip:
                 clip = clip_slot.clip
-                if clip_slot.is_playing:
+                if force_state is not None:
+                    state = force_state
+                elif clip_slot.is_playing:
                     state = CLIP_PLAYING
                 elif clip_slot.is_triggered:
                     state = CLIP_QUEUED
@@ -1074,9 +1082,11 @@ class ClipManager:
                     state = CLIP_RECORDING
                 else:
                     state = CLIP_STOPPED
-                
                 base_color = ColorUtils.live_color_to_rgb(clip.color)
-                color = ColorUtils.get_clip_state_color(state, base_color)
+                if color_override is not None:
+                    color = color_override
+                else:
+                    color = ColorUtils.get_clip_state_color(state, base_color)
             else:
                 color = NEOTRELLIS_EMPTY_PAD_COLOR
 
@@ -1113,21 +1123,7 @@ class ClipManager:
     def handle_track_playing_slot(self, track_idx, scene_idx):
         """Called from TrackManager when a playing slot changes."""
         try:
-            if track_idx < 0:
-                return
-
-            if scene_idx is None or scene_idx < 0:
-                # Track stopped: refresh visible pads for this track
-                session_ring = self.c_surface.get_manager('session_ring')
-                if not session_ring:
-                    return
-                start_scene = session_ring.scene_offset
-                end_scene = start_scene + GRID_HEIGHT
-                for s_idx in range(start_scene, min(end_scene, len(self.song.scenes))):
-                    if (track_idx < len(self.song.tracks) and
-                        s_idx < len(self.song.scenes)):
-                        self._send_clip_state(track_idx, s_idx)
-                        self._send_single_pad_update(track_idx, s_idx)
+            if track_idx < 0 or scene_idx is None or scene_idx < 0:
                 return
 
             self.ensure_region_monitored(track_idx, 1, scene_idx, 1)
@@ -1135,10 +1131,29 @@ class ClipManager:
                 scene_idx < len(self.song.scenes)):
                 self._send_clip_state(track_idx, scene_idx)
                 self._send_single_pad_update(track_idx, scene_idx)
+                self._track_last_playing[track_idx] = scene_idx
 
         except Exception as e:
             self.c_surface.log_message(
                 f"❌ Error handling playing slot for T{track_idx}S{scene_idx}: {e}"
+            )
+
+    def handle_track_stopped(self, track_idx):
+        """Called when transport stop empties currently playing clips on a track."""
+        try:
+            scene_idx = self._track_last_playing.pop(track_idx, None)
+            if scene_idx is None:
+                return
+            if (track_idx < len(self.song.tracks) and
+                scene_idx < len(self.song.scenes)):
+                self.ensure_region_monitored(track_idx, 1, scene_idx, 1)
+                track = self.song.tracks[track_idx]
+                track_color = ColorUtils.live_color_to_rgb(track.color)
+                self._send_clip_state(track_idx, scene_idx, CLIP_STOPPED, track_color)
+                self._send_single_pad_update(track_idx, scene_idx, CLIP_STOPPED, track_color)
+        except Exception as e:
+            self.c_surface.log_message(
+                f"❌ Error handling stopped track {track_idx}: {e}"
             )
 
     def _send_neotrellis_clip_grid(self, track_start=None, scene_start=None):
