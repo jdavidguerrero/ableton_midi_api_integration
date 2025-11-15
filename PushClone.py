@@ -510,7 +510,7 @@ class PushClone(ControlSurface):
 
             # CLIP & SCENE COMMANDS (0x10-0x1F)
             elif 0x10 <= command <= 0x1F:
-                self._managers['clip'].handle_clip_command(command, payload)
+                self._handle_clip_command(command, payload)
 
             # MIXER & TRACK COMMANDS (0x20-0x2F)
             elif 0x20 <= command <= 0x2F:
@@ -605,22 +605,79 @@ class PushClone(ControlSurface):
         """Handle clip view commands"""
         try:
             if command == CMD_CLIP_TRIGGER and len(payload) >= 2:
-                track_idx, scene_idx = payload[0], payload[1]
-                self._managers['clip'].fire_clip(track_idx, scene_idx)
+                resolved = self._resolve_absolute_clip_position(payload[0], payload[1])
+                if resolved:
+                    abs_track, abs_scene = resolved
+                    self._managers['clip'].fire_clip(abs_track, abs_scene)
                 
             elif command == CMD_CLIP_STOP and len(payload) >= 2:
-                track_idx, scene_idx = payload[0], payload[1]
-                self._managers['clip'].stop_clip(track_idx, scene_idx)
+                resolved = self._resolve_absolute_clip_position(payload[0], payload[1])
+                if resolved:
+                    abs_track, abs_scene = resolved
+                    self._managers['clip'].stop_clip(abs_track, abs_scene)
                 
             elif command == CMD_SCENE_FIRE and len(payload) >= 1:
-                scene_idx = payload[0]
-                self._managers['clip'].fire_scene(scene_idx)
+                scene_idx = self._resolve_absolute_scene_index(payload[0])
+                if scene_idx is not None:
+                    self._managers['clip'].fire_scene(scene_idx)
                 
             else:
                 self.log_message(f"❓ Unknown clip command: 0x{command:02X}")
                 
         except Exception as e:
             self.log_message(f"❌ Error handling clip command 0x{command:02X}: {e}")
+
+    def _resolve_absolute_clip_position(self, track_idx, scene_idx):
+        """
+        Converts relative clip coordinates (0-7,0-3) into absolute indices
+        using the current Session Ring offsets. If the incoming indexes already
+        exceed the ring dimensions, they are treated as absolute values.
+        """
+        try:
+            total_tracks = len(self.song().tracks)
+            total_scenes = len(self.song().scenes)
+            abs_track = track_idx
+            abs_scene = scene_idx
+
+            if self._session_ring:
+                if track_idx < self._session_ring.ring_width:
+                    abs_track = track_idx + self._session_ring.track_offset
+                if scene_idx < self._session_ring.ring_height:
+                    abs_scene = scene_idx + self._session_ring.scene_offset
+
+            if not (0 <= abs_track < total_tracks):
+                self.log_message(f"⚠️ Clip trigger ignored: track {abs_track} out of range")
+                return None
+            if not (0 <= abs_scene < total_scenes):
+                self.log_message(f"⚠️ Clip trigger ignored: scene {abs_scene} out of range")
+                return None
+
+            return abs_track, abs_scene
+        except Exception as e:
+            self.log_message(f"❌ Error resolving clip position ({track_idx}, {scene_idx}): {e}")
+            return None
+
+    def _resolve_absolute_scene_index(self, scene_idx):
+        """
+        Converts a relative scene index into an absolute one using the current
+        Session Ring offset. If the incoming index already exceeds the ring
+        height, it is treated as an absolute index.
+        """
+        try:
+            total_scenes = len(self.song().scenes)
+            abs_scene = scene_idx
+
+            if self._session_ring and scene_idx < self._session_ring.ring_height:
+                abs_scene = scene_idx + self._session_ring.scene_offset
+
+            if not (0 <= abs_scene < total_scenes):
+                self.log_message(f"⚠️ Scene trigger ignored: scene {abs_scene} out of range")
+                return None
+
+            return abs_scene
+        except Exception as e:
+            self.log_message(f"❌ Error resolving scene index {scene_idx}: {e}")
+            return None
     
     def _handle_streaming_command(self, command, payload):
         """Handle streaming/system commands"""

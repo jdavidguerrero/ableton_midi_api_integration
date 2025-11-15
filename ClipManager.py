@@ -1891,22 +1891,6 @@ class ClipManager:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error firing scene S{scene_idx}: {e}")
     
-    def handle_clip_command(self, command, payload):
-        """Handle incoming clip/scene commands from hardware"""
-        try:
-            if command == CMD_CLIP_TRIGGER and len(payload) >= 2:
-                track_idx, scene_idx = payload[0], payload[1]
-                self.fire_clip(track_idx, scene_idx)
-            elif command == CMD_CLIP_STOP and len(payload) >= 2:
-                track_idx, scene_idx = payload[0], payload[1]
-                self.stop_clip(track_idx, scene_idx)
-            elif command == CMD_SCENE_FIRE and len(payload) >= 1:
-                self.fire_scene(payload[0])
-            else:
-                self.c_surface.log_message(f"❓ Unknown clip command: 0x{command:02X}")
-        except Exception as e:
-            self.c_surface.log_message(f"❌ Error handling clip command 0x{command:02X}: {e}")
-
     def handle_midi_clip_command(self, command, payload):
         """Handle incoming MIDI clip commands from hardware"""
         try:
