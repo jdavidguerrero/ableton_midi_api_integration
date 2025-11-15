@@ -18,6 +18,8 @@ class ClipManager:
         self.song = control_surface.song()
         self._clip_listeners = {}  # (track_idx, scene_idx): [listeners]
         self._scene_listeners = {}  # scene_idx: [listeners]
+        self._clip_content_sources = {}  # (track_idx, scene_idx): clip obj
+        self._clip_sample_sources = {}   # (track_idx, scene_idx): sample obj
         self._is_active = False
         self._track_last_playing = {}
 
@@ -113,6 +115,9 @@ class ClipManager:
     def _setup_clip_content_listeners(self, track_idx, scene_idx, clip, listeners):
         """Setup listeners for actual clip content"""
         try:
+            clip_key = (track_idx, scene_idx)
+            self._clip_content_sources[clip_key] = clip
+            self._clip_sample_sources.pop(clip_key, None)
             # Clip name
             name_listener = lambda t_idx=track_idx, s_idx=scene_idx: self._on_clip_name_changed(t_idx, s_idx)
             clip.add_name_listener(name_listener)
@@ -143,6 +148,7 @@ class ClipManager:
             
             # Sample class listeners (for audio clips with samples)
             if self._is_audio_clip(clip) and hasattr(clip, 'sample') and clip.sample:
+                self._clip_sample_sources[clip_key] = clip.sample
                 self._setup_sample_listeners(track_idx, scene_idx, clip.sample, listeners)
             
             # Start marker (for audio clips)
@@ -312,6 +318,68 @@ class ClipManager:
                     
         except Exception as e:
             self.c_surface.log_message(f"❌ Error setting up sample listeners T{track_idx}S{scene_idx}: {e}")
+
+    def _teardown_clip_content_listeners(self, track_idx, scene_idx):
+        """Remove clip-level listeners for a specific slot (without touching slot listeners)."""
+        clip_key = (track_idx, scene_idx)
+        listeners = self._clip_listeners.get(clip_key)
+        if not listeners:
+            return
+
+        clip = self._clip_content_sources.get(clip_key)
+        sample = self._clip_sample_sources.get(clip_key)
+
+        clip_removers = {
+            'name': 'remove_name_listener',
+            'color': 'remove_color_listener',
+            'looping': 'remove_looping_listener',
+            'muted': 'remove_muted_listener',
+            'start_marker': 'remove_start_marker_listener',
+            'end_marker': 'remove_end_marker_listener',
+            'loop_start': 'remove_loop_start_listener',
+            'loop_end': 'remove_loop_end_listener',
+            'length': 'remove_length_listener',
+            'playing_position': 'remove_playing_position_listener',
+        }
+
+        sample_removers = {
+            'sample_name': 'remove_name_listener',
+            'sample_file_path': 'remove_file_path_listener',
+            'sample_length': 'remove_length_listener',
+            'sample_gain': 'remove_gain_listener',
+            'sample_reverse': 'remove_reverse_listener',
+            'sample_slices': 'remove_slices_listener',
+            'sample_warp_markers': 'remove_warp_markers_listener',
+        }
+
+        remaining_listeners = []
+        for listener_type, listener_func in listeners:
+            handled = False
+            if listener_type in clip_removers and clip:
+                remover = getattr(clip, clip_removers[listener_type], None)
+                if remover:
+                    try:
+                        remover(listener_func)
+                    except Exception:
+                        pass
+                handled = True
+            elif listener_type in sample_removers and sample:
+                remover = getattr(sample, sample_removers[listener_type], None)
+                if remover:
+                    try:
+                        remover(listener_func)
+                    except Exception:
+                        pass
+                handled = True
+
+            if not handled:
+                remaining_listeners.append((listener_type, listener_func))
+
+        self._clip_listeners[clip_key] = remaining_listeners
+        self._clip_content_sources.pop(clip_key, None)
+        self._clip_sample_sources.pop(clip_key, None)
+        self._position_values.pop(clip_key, None)
+        self._position_last_sent.pop(clip_key, None)
     
     def cleanup_listeners(self):
         """Remove all clip and scene listeners"""
@@ -384,6 +452,8 @@ class ClipManager:
                             pass  # Ignore if already removed
             
             self._clip_listeners = {}
+            self._clip_content_sources = {}
+            self._clip_sample_sources = {}
             self._scene_listeners = {}
             self._is_active = False
             self.c_surface.log_message("✅ Clip and scene listeners cleaned up")
@@ -409,11 +479,19 @@ class ClipManager:
                 scene_idx < len(self.song.scenes)):
                 
                 clip_slot = self.song.tracks[track_idx].clip_slots[scene_idx]
-                if clip_slot.has_clip:
-                    # Add clip content listeners
-                    clip_key = (track_idx, scene_idx)
-                    if clip_key in self._clip_listeners:
-                        listeners = self._clip_listeners[clip_key]
+                clip_key = (track_idx, scene_idx)
+
+                if clip_key not in self._clip_listeners:
+                    self._setup_single_clip_listeners(track_idx, scene_idx)
+                
+                # Always tear down old clip listeners (clip could have been replaced)
+                self._teardown_clip_content_listeners(track_idx, scene_idx)
+
+                if clip_slot.has_clip and clip_key in self._clip_listeners:
+                    listeners = self._clip_listeners[clip_key]
+                    self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
+                    # Send fresh metadata immediately
+                    self._send_clip_name(track_idx, scene_idx, clip_slot.clip.name)
             self._send_clip_state(track_idx, scene_idx)
             self._send_single_pad_update(track_idx, scene_idx)
     
@@ -1063,6 +1141,16 @@ class ClipManager:
         if not (track_offset <= track_idx < track_offset + GRID_WIDTH and
                 scene_offset <= scene_idx < scene_offset + GRID_HEIGHT):
             return # Change is outside the visible grid, do nothing
+
+        # Validate bounds before touching Live data (session ring can point outside)
+        if (track_idx < 0 or
+            track_idx >= len(self.song.tracks) or
+            scene_idx < 0 or
+            scene_idx >= len(self.song.tracks[track_idx].clip_slots)):
+            self.c_surface.log_message(
+                f"⚠️ Single pad update ignored: T{track_idx}S{scene_idx} outside current song bounds"
+            )
+            return
 
         # Calculate the pad's color
         color = (0, 0, 0)
@@ -1767,6 +1855,10 @@ class ClipManager:
             
             # Re-setup listeners for all current clips and scenes
             self.setup_listeners(max_tracks=8, max_scenes=8)
+
+            # Immediately push a fresh snapshot so hardware knows about
+            # clip names/colors for the new grid.
+            self.send_complete_state()
             
             self.c_surface.log_message("✅ All clip listeners refreshed")
             

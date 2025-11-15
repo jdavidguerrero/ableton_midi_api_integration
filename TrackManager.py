@@ -662,6 +662,10 @@ class TrackManager:
             
             # Re-setup listeners for all current tracks
             self.setup_listeners(max_tracks=8)
+
+            # After reattaching listeners, push a fresh snapshot so new tracks
+            # (or reordered ones) immediately get their metadata on hardware.
+            self.send_complete_state()
             
             self.c_surface.log_message("✅ All track listeners refreshed")
             
