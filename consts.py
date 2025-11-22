@@ -301,7 +301,7 @@ DEBUG_ENABLED = True
 LOG_MIDI_MESSAGES = True   # Enable for Teensy development
 LOG_LISTENER_EVENTS = True # Enable for debugging  
 LOG_VIEW_SWITCHES = True
-LOG_PARAMETER_CHANGES = False
+LOG_PARAMETER_CHANGES = True
 ENABLE_CPU_USAGE_STREAM = False  # Disable CPU usage SysEx until firmware supports it reliably
 LOG_SONG_POSITION_UPDATES = False
 

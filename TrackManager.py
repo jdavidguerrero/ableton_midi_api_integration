@@ -389,9 +389,13 @@ class TrackManager:
         """Send track name to hardware"""
         try:
             name_bytes = name.encode('utf-8')[:12]  # Max 12 chars
-            payload = [track_idx, len(name_bytes)]
-            payload.extend(list(name_bytes))
-            self.c_surface._send_sysex_command(CMD_TRACK_NAME, payload)
+            coalescer = getattr(self.c_surface, '_message_coalescer', None)
+            if coalescer:
+                coalescer.queue_track_name(track_idx, list(name_bytes))
+            else:
+                payload = [track_idx, len(name_bytes)]
+                payload.extend(list(name_bytes))
+                self.c_surface._send_sysex_command(CMD_TRACK_NAME, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track name T{track_idx}: {e}")
     
@@ -404,8 +408,12 @@ class TrackManager:
             g = min(127, max(0, g // 2))
             b = min(127, max(0, b // 2))
             
-            payload = [track_idx, r, g, b]
-            self.c_surface._send_sysex_command(CMD_TRACK_COLOR, payload)
+            coalescer = getattr(self.c_surface, '_message_coalescer', None)
+            if coalescer:
+                coalescer.queue_track_color(track_idx, r, g, b)
+            else:
+                payload = [track_idx, r, g, b]
+                self.c_surface._send_sysex_command(CMD_TRACK_COLOR, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track color T{track_idx}: {e}")
     
@@ -434,28 +442,38 @@ class TrackManager:
             self.c_surface.log_message(f"❌ Error sending track arm T{track_idx}: {e}")
     
     def _send_track_volume_state(self, track_idx, volume):
-        """Send track volume state to hardware"""
+        """Send track volume state to hardware (14-bit resolution)"""
         try:
-            volume_127 = int(volume * 127)
-            payload = [track_idx, volume_127]
+            # Convert 0.0-1.0 to 14-bit (0-16383)
+            value14bit = int(volume * 16383)
+            msb = (value14bit >> 7) & 0x7F
+            lsb = value14bit & 0x7F
+            payload = [track_idx, msb, lsb]
+            self.c_surface.log_message(f"📤 Send T{track_idx} VOL: vol={volume:.3f} → 14bit={value14bit} MSB=0x{msb:02X} LSB=0x{lsb:02X} len={len(payload)}")
             self.c_surface._send_sysex_command(CMD_MIXER_VOLUME, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track volume T{track_idx}: {e}")
     
     def _send_track_pan_state(self, track_idx, pan):
-        """Send track pan state to hardware"""
+        """Send track pan state to hardware (14-bit resolution)"""
         try:
-            pan_127 = int((pan + 1.0) * 63.5)  # Convert -1.0/1.0 to 0-127
-            payload = [track_idx, pan_127]
+            # Convert -1.0/+1.0 to 14-bit (0-16383, center=8192)
+            value14bit = int((pan + 1.0) * 8191.5)
+            msb = (value14bit >> 7) & 0x7F
+            lsb = value14bit & 0x7F
+            payload = [track_idx, msb, lsb]
             self.c_surface._send_sysex_command(CMD_MIXER_PAN, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track pan T{track_idx}: {e}")
     
     def _send_track_send_state(self, track_idx, send_idx, send_value):
-        """Send track send state to hardware"""
+        """Send track send state to hardware (14-bit resolution)"""
         try:
-            send_127 = int(send_value * 127)
-            payload = [track_idx, send_idx, send_127]
+            # Convert 0.0-1.0 to 14-bit (0-16383)
+            value14bit = int(send_value * 16383)
+            msb = (value14bit >> 7) & 0x7F
+            lsb = value14bit & 0x7F
+            payload = [track_idx, send_idx, msb, lsb]
             self.c_surface._send_sysex_command(CMD_MIXER_SEND, payload)
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending track send T{track_idx}S{send_idx}: {e}")

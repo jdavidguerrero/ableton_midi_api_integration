@@ -340,14 +340,18 @@ class ColorUtils:
         }
 
         if state == CLIP_PLAYING:
-            final_color = (r // 2, min(255, g + 150), b // 2)
-        elif state == CLIP_RECORDING:
-            final_color = (min(255, r + 150), g // 2, b // 2)
+            # Green for playing
+            final_color = (0, 255, 0)
         elif state == CLIP_QUEUED:
-            final_color = (min(255, r + 100), min(255, g + 100), b // 2)
+            # Flashing green (simulated with bright green for now) for queued
+            final_color = (0, 255, 0)
+        elif state == CLIP_RECORDING:
+            # Red for recording
+            final_color = (255, 0, 0)
         elif state == CLIP_EMPTY:
             final_color = (0, 0, 0)
         else: # Clip exists but is stopped
+            # Original color
             final_color = (r, g, b)
 
         # Log disabled to reduce verbosity - see GRID_ENCODE for full details

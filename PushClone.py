@@ -514,7 +514,7 @@ class PushClone(ControlSurface):
 
             # MIXER & TRACK COMMANDS (0x20-0x2F)
             elif 0x20 <= command <= 0x2F:
-                self._managers['track'].handle_mixer_command(command, payload)
+                self._handle_mixer_command(command, payload)
 
             # DEVICE & PLUGIN COMMANDS (0x30-0x3F)
             elif 0x30 <= command <= 0x3F:
@@ -692,36 +692,45 @@ class PushClone(ControlSurface):
             self.log_message(f"❌ Error handling streaming command 0x{command:02X}: {e}")
     
     def _handle_mixer_command(self, command, payload):
-        """Handle mixer view commands"""
+        """Handle mixer view commands (14-bit resolution)"""
         try:
-            if command == CMD_MIXER_VOLUME and len(payload) >= 2:
-                track_idx, volume = payload[0], payload[1]
-                self._set_track_volume(track_idx, volume / 127.0)
-                
-            elif command == CMD_MIXER_PAN and len(payload) >= 2:
-                track_idx, pan = payload[0], payload[1]
-                pan_value = (pan - 64) / 63.0  # Convert 0-127 to -1.0/1.0
-                self._set_track_pan(track_idx, pan_value)
-                
+            if command == CMD_MIXER_VOLUME and len(payload) >= 3:
+                # 14-bit resolution: [trackIndex, MSB, LSB]
+                track_idx, msb, lsb = payload[0], payload[1], payload[2]
+                value14bit = (msb << 7) | lsb
+                volume_float = value14bit / 16383.0  # 0.0 - 1.0
+                self._set_track_volume(track_idx, volume_float)
+
+            elif command == CMD_MIXER_PAN and len(payload) >= 3:
+                # 14-bit resolution: [trackIndex, MSB, LSB]
+                track_idx, msb, lsb = payload[0], payload[1], payload[2]
+                value14bit = (msb << 7) | lsb
+                # Convert 0-16383 to -1.0/+1.0 (center = 8192)
+                pan_float = (value14bit / 16383.0) * 2.0 - 1.0
+                self._set_track_pan(track_idx, pan_float)
+
             elif command == CMD_MIXER_MUTE and len(payload) >= 1:
                 track_idx = payload[0]
                 self._toggle_track_mute(track_idx)
-                
+
             elif command == CMD_MIXER_SOLO and len(payload) >= 1:
                 track_idx = payload[0]
                 self._toggle_track_solo(track_idx)
-                
+
             elif command == CMD_MIXER_ARM and len(payload) >= 1:
                 track_idx = payload[0]
                 self._toggle_track_arm(track_idx)
-                
-            elif command == CMD_MIXER_SEND and len(payload) >= 3:
-                track_idx, send_idx, send_value = payload[0], payload[1], payload[2]
-                self._set_track_send(track_idx, send_idx, send_value / 127.0)
-                
+
+            elif command == CMD_MIXER_SEND and len(payload) >= 4:
+                # 14-bit resolution: [trackIndex, sendIndex, MSB, LSB]
+                track_idx, send_idx, msb, lsb = payload[0], payload[1], payload[2], payload[3]
+                value14bit = (msb << 7) | lsb
+                send_float = value14bit / 16383.0  # 0.0 - 1.0
+                self._set_track_send(track_idx, send_idx, send_float)
+
             else:
                 self.log_message(f"❓ Unknown mixer command: 0x{command:02X}")
-                
+
         except Exception as e:
             self.log_message(f"❌ Error handling mixer command 0x{command:02X}: {e}")
     

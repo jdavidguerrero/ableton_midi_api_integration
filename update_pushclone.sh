@@ -3,7 +3,7 @@
 # Copia los archivos Python del proyecto a la carpeta de Remote Scripts de Ableton
 
 # === CONFIGURACIÓN ===
-SOURCE_DIR="/Users/juandavidguerrerocastro/Documents/PROJECTS/MUSIC_DEVICES/ableton_midi_api_integration"
+SOURCE_DIR="/Users/juandavidguerrerocastro/Documents/PROJECTS/MUSIC_DEVICES/PUSHCLONEPROJECT/ableton_midi_api_integration"
 DEST_DIR="/Users/juandavidguerrerocastro/Music/Ableton/User Library/Remote Scripts/PushClone"
 
 echo ""

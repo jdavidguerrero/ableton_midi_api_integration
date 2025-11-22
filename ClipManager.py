@@ -1359,26 +1359,8 @@ class ClipManager:
                     'raw_color': raw_color_value
                 })
 
-        # LOG GRID COLORS BEFORE ENCODING
-        self.c_surface.log_message("=" * 80)
-        self.c_surface.log_message(f"GRID_COLORS: Sending {len(grid_data)} pads")
-        self.c_surface.log_message("=" * 80)
-        for pad_idx, (r, g, b) in enumerate(grid_data):
-            debug_info = grid_debug[pad_idx]
-            raw_color = debug_info['raw_color']
-            raw_str = f"0x{raw_color:06X}" if isinstance(raw_color, int) else "None"
-            self.c_surface.log_message(
-                f"PAD[{pad_idx:02d}] T{debug_info['track']}S{debug_info['scene']}: "
-                f"RGB({r:3d},{g:3d},{b:3d}) src={raw_str} state={debug_info['state']}"
-            )
-        self.c_surface.log_message("=" * 80)
-
         if not is_connected:
             return
-
-        # Make sure track and clip names are refreshed for the visible window
-        self._send_visible_track_names(track_start)
-        self._send_visible_clip_names(track_start, scene_start)
 
         # Use enhanced encoder for full RGB support
         if self._color_mode == 'full_rgb':
@@ -1390,6 +1372,10 @@ class ClipManager:
             self.c_surface._send_midi(tuple(message))
         else:
             self.c_surface.log_message("GRID_UPDATE: ❌ Failed to encode grid message")
+
+        # After bulk, refresh names for the visible window
+        self._send_visible_track_names(track_start)
+        self._send_visible_clip_names(track_start, scene_start)
     
     # ========================================
     # MIDI CLIP NOTE MANIPULATION METHODS
@@ -1911,19 +1897,26 @@ class ClipManager:
             return
             
         try:
-            self.c_surface.log_message("📡 Sending complete clip/scene state...")
-            
-            # Send all clip states
-            for (track_idx, scene_idx) in self._clip_listeners.keys():
-                self.send_complete_clip_state(track_idx, scene_idx)
-            
-            # Send all scene states
-            for scene_idx in self._scene_listeners.keys():
-                self.send_complete_scene_state(scene_idx)
+            self.c_surface.log_message("📡 Sending complete clip/scene state (visible ring first)...")
 
-            # Send complete grid with all colors
-            self.c_surface.log_message("🎨 Sending complete grid colors...")
-            self._send_neotrellis_clip_grid()
+            session_ring = self.c_surface.get_manager('session_ring')
+            track_start = session_ring.track_offset if session_ring else 0
+            scene_start = session_ring.scene_offset if session_ring else 0
+
+            track_end = min(track_start + GRID_WIDTH, len(self.song.tracks))
+            scene_end = min(scene_start + GRID_HEIGHT, len(self.song.scenes))
+
+            # 1) Grid bulk first (visible window)
+            self._send_neotrellis_clip_grid(track_start=track_start, scene_start=scene_start)
+
+            # 2) Visible clip states
+            for track_idx in range(track_start, track_end):
+                for scene_idx in range(scene_start, scene_end):
+                    self.send_complete_clip_state(track_idx, scene_idx)
+            
+            # 3) Visible scene states
+            for scene_idx in range(scene_start, scene_end):
+                self.send_complete_scene_state(scene_idx)
 
             self.c_surface.log_message("✅ Clip/scene state sent")
             

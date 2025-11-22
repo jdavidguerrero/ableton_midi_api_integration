@@ -28,7 +28,7 @@ class MessageCoalescer:
         self.coalesce_window_ms = 4.0  # Group messages within 4ms
         
         # Message batching
-        self._pending_messages = {}  # command -> latest_payload
+        self._pending_messages = {}  # state_key -> latest message data
         self._last_send_time = 0
         self._flush_timer = None
         self._frame_timer = None
@@ -40,7 +40,9 @@ class MessageCoalescer:
             CMD_DEVICE_PARAMS: 2,
             CMD_STEP_SEQUENCER_STATE: 3,
             CMD_NEOTRELLIS_GRID: 3,
-            CMD_RING_POSITION: 2
+            CMD_RING_POSITION: 2,
+            CMD_TRACK_NAME: 2,
+            CMD_TRACK_COLOR: 2
         }
         
         # Statistics
@@ -49,15 +51,16 @@ class MessageCoalescer:
         self._frames_dropped = 0
         
         # State tracking for deltas
-        self._last_states = {}  # command -> last_payload
+        self._last_states = {}  # state_key -> last_payload
         
-    def queue_message(self, command, payload, priority_override=None):
+    def queue_message(self, command, payload, priority_override=None, state_key=None):
         """Queue a message for coalesced sending"""
         try:
             current_time = time.time() * 1000  # Convert to ms
             
             # Check if this is a duplicate of the last state
-            if self._is_duplicate_state(command, payload):
+            key = state_key or command
+            if self._is_duplicate_state(key, payload):
                 return  # Skip duplicate
             
             # Determine message priority
@@ -68,15 +71,16 @@ class MessageCoalescer:
                 'payload': payload,
                 'priority': priority,
                 'timestamp': current_time,
-                'command': command
+                'command': command,
+                'state_key': key
             }
             
             # For LED updates, only keep the latest
             if self._is_led_command(command):
-                self._pending_messages[command] = message_data
+                self._pending_messages[key] = message_data
             else:
                 # For other commands, create unique key to avoid overwriting
-                unique_key = f"{command}_{len(self._pending_messages)}"
+                unique_key = f"{key}_{len(self._pending_messages)}"
                 self._pending_messages[unique_key] = message_data
             
             self._messages_coalesced += 1
@@ -87,10 +91,10 @@ class MessageCoalescer:
         except Exception as e:
             self.c_surface.log_message(f"❌ Error queuing message: {e}")
     
-    def _is_duplicate_state(self, command, payload):
+    def _is_duplicate_state(self, state_key, payload):
         """Check if this payload is identical to the last one sent"""
         try:
-            last_payload = self._last_states.get(command)
+            last_payload = self._last_states.get(state_key)
             if last_payload is None:
                 return False
                 
@@ -116,9 +120,24 @@ class MessageCoalescer:
             CMD_STEP_SEQUENCER_STATE,
             CMD_DEVICE_PARAMS,
             CMD_MIXER_STATE,
-            CMD_TRANSPORT_STATE
+            CMD_TRANSPORT_STATE,
+            CMD_TRACK_NAME,
+            CMD_TRACK_COLOR
         }
         return command in led_commands
+
+    # === TRACK HELPERS ===
+    def queue_track_name(self, track_idx, name_bytes):
+        """Queue a track name update; state-keyed per track to coalesce."""
+        payload = [track_idx, len(name_bytes)]
+        payload.extend(name_bytes)
+        key = f"{CMD_TRACK_NAME}_T{track_idx}"
+        self.queue_message(CMD_TRACK_NAME, payload, priority_override=2, state_key=key)
+
+    def queue_track_color(self, track_idx, r, g, b):
+        payload = [track_idx, r, g, b]
+        key = f"{CMD_TRACK_COLOR}_T{track_idx}"
+        self.queue_message(CMD_TRACK_COLOR, payload, priority_override=2, state_key=key)
     
     def _schedule_flush(self):
         """Schedule message flush based on frame rate"""
@@ -205,7 +224,8 @@ class MessageCoalescer:
                 self.c_surface._send_midi(tuple(sysex_message))
                 
                 # Store state for duplicate detection
-                self._last_states[command] = payload.copy() if hasattr(payload, 'copy') else list(payload)
+                state_key = message_data.get('state_key', command)
+                self._last_states[state_key] = payload.copy() if hasattr(payload, 'copy') else list(payload)
                 
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending message 0x{message_data['command']:02X}: {e}")
