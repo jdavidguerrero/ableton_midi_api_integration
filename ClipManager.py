@@ -492,6 +492,9 @@ class ClipManager:
                     self._setup_clip_content_listeners(track_idx, scene_idx, clip_slot.clip, listeners)
                     # Send fresh metadata immediately
                     self._send_clip_name(track_idx, scene_idx, clip_slot.clip.name)
+                else:
+                    # Clip removed, push empty name to clear label
+                    self._send_clip_name(track_idx, scene_idx, "")
             self._send_clip_state(track_idx, scene_idx)
             self._send_single_pad_update(track_idx, scene_idx)
     
@@ -1160,6 +1163,8 @@ class ClipManager:
 
             if clip_slot.has_clip:
                 clip = clip_slot.clip
+                # Send clip name with every pad refresh so the controller label stays synced
+                self._send_clip_name(track_idx, scene_idx, clip.name)
                 if force_state is not None:
                     state = force_state
                 elif clip_slot.is_playing:
@@ -1171,11 +1176,10 @@ class ClipManager:
                 else:
                     state = CLIP_STOPPED
                 base_color = ColorUtils.live_color_to_rgb(clip.color)
-                if color_override is not None:
-                    color = color_override
-                else:
-                    color = ColorUtils.get_clip_state_color(state, base_color)
+                color = color_override if color_override is not None else ColorUtils.get_clip_state_color(state, base_color)
             else:
+                # No clip present: clear name so hardware hides stale labels
+                self._send_clip_name(track_idx, scene_idx, "")
                 color = NEOTRELLIS_EMPTY_PAD_COLOR
 
         except Exception as e:
@@ -1194,6 +1198,35 @@ class ClipManager:
             if DEBUG_ENABLED:
                 r, g, b = color
                 self.c_surface.log_message(f"🎨 Sent single pad update for T{track_idx}S{scene_idx} (Pad {pad_index}) -> RGB({r},{g},{b})")
+
+    def _send_visible_track_names(self, track_start):
+        """Send track names for the currently visible Session Ring window."""
+        track_manager = self.c_surface._managers.get('track') if hasattr(self.c_surface, '_managers') else None
+        if not track_manager:
+            return
+
+        for abs_track in range(track_start, min(track_start + GRID_WIDTH, len(self.song.tracks))):
+            try:
+                track = self.song.tracks[abs_track]
+                track_manager._send_track_name(abs_track, track.name)
+            except Exception as e:
+                self.c_surface.log_message(f"❌ Error sending visible track name T{abs_track}: {e}")
+
+    def _send_visible_clip_names(self, track_start, scene_start):
+        """Send clip names for every clip in the currently visible Session Ring window."""
+        max_track = min(track_start + GRID_WIDTH, len(self.song.tracks))
+        max_scene = min(scene_start + GRID_HEIGHT, len(self.song.scenes))
+        for abs_track in range(track_start, max_track):
+            for abs_scene in range(scene_start, max_scene):
+                try:
+                    track = self.song.tracks[abs_track]
+                    if abs_scene < len(track.clip_slots) and track.clip_slots[abs_scene].has_clip:
+                        clip = track.clip_slots[abs_scene].clip
+                        self._send_clip_name(abs_track, abs_scene, clip.name)
+                    else:
+                        self._send_clip_name(abs_track, abs_scene, "")
+                except Exception as e:
+                    self.c_surface.log_message(f"❌ Error sending visible clip name T{abs_track}S{abs_scene}: {e}")
 
     def handle_track_fired_slot(self, track_idx, scene_idx):
         """Called from TrackManager when a fired slot changes."""
@@ -1342,6 +1375,10 @@ class ClipManager:
 
         if not is_connected:
             return
+
+        # Make sure track and clip names are refreshed for the visible window
+        self._send_visible_track_names(track_start)
+        self._send_visible_clip_names(track_start, scene_start)
 
         # Use enhanced encoder for full RGB support
         if self._color_mode == 'full_rgb':
@@ -1826,6 +1863,9 @@ class ClipManager:
 
                     if hasattr(clip, 'end_marker'):
                         self._send_clip_end_marker(track_idx, scene_idx, clip.end_marker)
+            else:
+                # No clip, send empty name to clear display
+                self._send_clip_name(track_idx, scene_idx, "")
             
         except Exception as e:
             self.c_surface.log_message(f"❌ Error sending clip T{track_idx}S{scene_idx} state: {e}")
